@@ -257,7 +257,7 @@ Formato de error: `{ "error": { "code", "message", "details?" } }`.
 Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 a 3 forman un proyecto presentable por sí solas**: si el tiempo falla, ahí hay un corte limpio. Lo demás es ampliación.
 
 ### Fase 0 — Fundaciones (S)
-- [ ] **P0-T1** Monorepo con pnpm workspaces, `tsconfig.base.json`, versión de Node fijada (`.nvmrc` y `engines`), `.gitignore`, `.editorconfig`, README mínimo.
+- [x] **P0-T1** Monorepo con pnpm workspaces, `tsconfig.base.json`, versión de Node fijada (`.nvmrc` y `engines`), `.gitignore`, `.editorconfig`, README mínimo.
 - [ ] **P0-T2** ESLint (typescript-eslint) + Prettier + Vitest. Scripts `dev`, `build`, `lint`, `typecheck`, `test`, `check`.
 - [ ] **P0-T3** `docker-compose.yml` con Postgres (base de desarrollo y de test) y `.env.example`. Scripts `db:up`, `db:migrate`, `db:seed`.
 - [ ] **P0-T4** Esqueleto de `apps/api`: `createApp()`, `GET /api/v1/health` que comprueba la base de datos, Prisma inicializado, test de humo con Supertest.
