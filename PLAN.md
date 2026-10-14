@@ -258,7 +258,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 
 ### Fase 0 — Fundaciones (S)
 - [x] **P0-T1** Monorepo con pnpm workspaces, `tsconfig.base.json`, versión de Node fijada (`.nvmrc` y `engines`), `.gitignore`, `.editorconfig`, README mínimo.
-- [ ] **P0-T2** ESLint (typescript-eslint) + Prettier + Vitest. Scripts `dev`, `build`, `lint`, `typecheck`, `test`, `check`.
+- [x] **P0-T2** ESLint (typescript-eslint) + Prettier + Vitest. Scripts `dev`, `build`, `lint`, `typecheck`, `test`, `check`.
 - [ ] **P0-T3** `docker-compose.yml` con Postgres (base de desarrollo y de test) y `.env.example`. Scripts `db:up`, `db:migrate`, `db:seed`.
 - [ ] **P0-T4** Esqueleto de `apps/api`: `createApp()`, `GET /api/v1/health` que comprueba la base de datos, Prisma inicializado, test de humo con Supertest.
 - [ ] **P0-T5** Esqueleto de `apps/web`: Vite + React + TypeScript + Tailwind; una pantalla que llama a `/health` mediante proxy de desarrollo.
