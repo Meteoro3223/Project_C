@@ -16,7 +16,7 @@
     "test": "vitest run",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "db:up": "docker compose up -d db",
-    "db:migrate": "node -e \"console.error('Prisma is not configured yet (P0-T4/P2-T1): no migration to run.'); process.exit(1)\"",
+    "db:migrate": "pnpm --filter @proyecto-c/api run db:migrate",
     "db:seed": "node -e \"console.error('Seed is not configured yet (P3-T1): nothing to seed.'); process.exit(1)\""
   },
   "devDependencies": {

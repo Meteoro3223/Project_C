@@ -1,0 +1,12 @@
+// Prisma schema for the Proyecto_C API.
+// P0-T4: datasource + generator only, so `GET /api/v1/health` can probe
+// the database. Domain models (Workspace, Course, Task, Availability)
+// arrive in P2-T1 with the first migration.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
