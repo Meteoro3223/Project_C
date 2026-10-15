@@ -1,0 +1,15 @@
+{
+  // Backend overrides: NodeNext ESM so `tsc` emits runnable `dist/`
+  // (relative imports therefore use `.js` extensions). Frontend keeps
+  // the base Bundler resolution (see P0-T5).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}
