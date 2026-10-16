@@ -263,7 +263,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 - [x] **P0-T4** Esqueleto de `apps/api`: `createApp()`, `GET /api/v1/health` que comprueba la base de datos, Prisma inicializado, test de humo con Supertest.
 - [x] **P0-T5** Esqueleto de `apps/web`: Vite + React + TypeScript + Tailwind; una pantalla que llama a `/health` mediante proxy de desarrollo.
 - [x] **P0-T6** `packages/core` y `packages/shared` con un test trivial cada uno; imports entre paquetes funcionando.
-- [ ] **P0-T7** GitHub Actions: lint, typecheck, test (con servicio Postgres) y build.
+- [x] **P0-T7** GitHub Actions: lint, typecheck, test (con servicio Postgres) y build.
 - [ ] **P0-T8** `docs/adr/` con plantilla y ADR-0001 (backend TypeScript/Express) y ADR-0002 (`core` puro).
 
 **Criterio:** CI en verde; `pnpm dev` levanta web y api; `/health` informa del estado de la base de datos.
