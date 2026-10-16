@@ -23,6 +23,19 @@ See `PLAN.md` (source of truth) and `AGENTS.md` (working conventions).
 
 - Node `22.17.0` (see `.nvmrc` and `engines`)
 - pnpm `11.9.0` (see `packageManager`)
+- Docker Desktop running (Postgres runs in a container)
+
+## Quick start
+
+```sh
+cp .env.example .env
+pnpm install
+pnpm db:up
+pnpm dev
+```
+
+The API serves `GET /api/v1/health` (reports `db: up` when Postgres is
+reachable) and the web app proxies to it during development.
 
 ## Install
 

@@ -1,9 +1,10 @@
+import { loadEnv } from "./env.js";
 import { createApp } from "./app.js";
 
-const rawPort = process.env["PORT"] ?? "4010";
-const parsedPort = Number(rawPort);
-const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 4010;
+// Fail fast with a clear message when DATABASE_URL is missing. The repo-root
+// `.env` is already loaded by `env.ts` (or by `--env-file-if-exists` flags).
+const env = loadEnv();
 
 const app = createApp();
 
-app.listen(port);
+app.listen(env.port);
