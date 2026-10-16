@@ -1,0 +1,22 @@
+{
+  "name": "@proyecto-c/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Zod schemas and DTO types shared by the api and web apps (placeholder until P2).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@proyecto-c/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
