@@ -158,7 +158,7 @@ interface RankableTask {
   status: "TODO" | "IN_PROGRESS" | "DONE";
 }
 
-interface Availability {
+interface WeeklyAvailability {
   minutesByWeekday: Record<Weekday, number>;
   timezone: string;
 }
@@ -280,7 +280,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 
 ### Fase 1 — Motor de prioridades (M)
 
-- [ ] **P1-T1** Tipos de dominio y `EngineConfig` con valores por defecto en `core`.
+- [x] **P1-T1** Tipos de dominio y `EngineConfig` con valores por defecto en `core`.
 - [ ] **P1-T2** `availableMinutes` con lógica de días naturales y zona horaria (elegir librería de fechas en un ADR). Tests con cambio de hora de `Europe/Madrid`.
 - [ ] **P1-T3** Cálculo de presión y niveles, incluyendo `infeasible` y `maxPressure`.
 - [ ] **P1-T4** `rankTasks` con desglose, razones y orden determinista.
