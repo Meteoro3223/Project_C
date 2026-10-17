@@ -281,12 +281,12 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 ### Fase 1 — Motor de prioridades (M)
 
 - [x] **P1-T1** Tipos de dominio y `EngineConfig` con valores por defecto en `core`.
-- [ ] **P1-T2** `availableMinutes` con lógica de días naturales y zona horaria (elegir librería de fechas en un ADR). Tests con cambio de hora de `Europe/Madrid`.
+- [x] **P1-T2** `availableMinutes` con lógica de días naturales y zona horaria (elección de librería de fechas: ADR-0004). Tests con cambio de hora de `Europe/Madrid`.
 - [ ] **P1-T3** Cálculo de presión y niveles, incluyendo `infeasible` y `maxPressure`.
 - [ ] **P1-T4** `rankTasks` con desglose, razones y orden determinista.
 - [ ] **P1-T5** Suite de tests tabulares con los escenarios S1–S8.
 - [ ] **P1-T6** Tests de propiedades (independencia del orden de entrada, monotonía, idempotencia).
-- [ ] **P1-T7** `docs/priority-engine.md` con la fórmula, ejemplos y limitaciones; ADR-0003 (presión como métrica) y ADR-0004 (días contados con fecha límite exclusiva).
+- [ ] **P1-T7** `docs/priority-engine.md` con la fórmula, ejemplos y limitaciones; ADR-0005 (presión como métrica) y ADR-0006 (días contados con fecha límite exclusiva).
 
 **Criterio:** todos los escenarios pasan, el orden resultante tiene sentido al revisarlo a mano y el documento del motor explica cada decisión.
 
