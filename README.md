@@ -21,14 +21,14 @@ See `PLAN.md` (source of truth) and `AGENTS.md` (working conventions).
 
 ## Prerequisites
 
-- Node `22.17.0` (see `.nvmrc` and `engines`)
+- Node `24` (see `.nvmrc` and `engines`)
 - pnpm `11.9.0` (see `packageManager`)
 - Docker Desktop running (Postgres runs in a container)
 
 ## Quick start
 
 ```sh
-cp .env.example .env
+copy .env.example .env
 pnpm install
 pnpm db:up
 pnpm dev

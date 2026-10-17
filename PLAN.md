@@ -15,24 +15,25 @@ El producto no es específico de una universidad: sirve para cualquiera con entr
 
 ## 2. Decisiones tomadas
 
-| ID | Decisión | Motivo |
-|---|---|---|
-| D1 | Producto = planificador de carga, no organizador académico | Se diferencia del Student Academic Manager y cuenta una historia más técnica |
-| D2 | Backend **Node.js + Express + TypeScript** | Un solo lenguaje en todo el stack permite compartir `core` entre API y web. ASP.NET Core aprovecharía C#, pero obligaría a duplicar el motor o a aislarlo detrás de otra API, sin aportar valor aquí. C# se cubre en otros proyectos del portfolio |
-| D3 | **PostgreSQL + Prisma** | Relaciones claras (workspace → asignaturas → tareas → sesiones) y migraciones tipadas. Cambia respecto a MongoDB del proyecto anterior |
-| D4 | Monorepo con **pnpm workspaces** | `core` y `shared` se reutilizan sin publicar paquetes |
-| D5 | Motor en `packages/core`, **puro y sin I/O** | Se testea con datos en memoria, sin mocks, y se explica de forma aislada |
-| D6 | Tiempo en **minutos enteros**; fechas en UTC; zona horaria por workspace (`Europe/Madrid` por defecto) | Evita errores de coma flotante y bugs de zona horaria / cambio de hora |
-| D7 | Prioridad basada en **presión** = minutos restantes / minutos disponibles hasta la fecha límite | Tiene sentido físico y es explicable. Los pesos arbitrarios no |
-| D8 | Demo pública con **workspaces anónimos** (cookie, sin cuentas) | Cualquiera puede probarlo en segundos con datos de ejemplo, sin implementar autenticación |
-| D9 | **Una sola unidad desplegable**: Express sirve la build de `web` | Mismo origen: cookies sencillas, sin CORS, un único servicio |
-| D10 | UI en español; código, comentarios, commits y docs técnicos en inglés | Portfolio legible internacionalmente; la UI es para el público objetivo |
-| D11 | React Router + TanStack Query en el frontend | Estándar para rutas y estado de servidor; evita reinventar caché y estados de carga |
-| D12 | El plan semanal es **derivado**, no se guarda | Se recalcula bajo demanda; evita datos obsoletos |
+| ID  | Decisión                                                                                               | Motivo                                                                                                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Producto = planificador de carga, no organizador académico                                             | Se diferencia del Student Academic Manager y cuenta una historia más técnica                                                                                                                                                                       |
+| D2  | Backend **Node.js + Express + TypeScript**                                                             | Un solo lenguaje en todo el stack permite compartir `core` entre API y web. ASP.NET Core aprovecharía C#, pero obligaría a duplicar el motor o a aislarlo detrás de otra API, sin aportar valor aquí. C# se cubre en otros proyectos del portfolio |
+| D3  | **PostgreSQL + Prisma**                                                                                | Relaciones claras (workspace → asignaturas → tareas → sesiones) y migraciones tipadas. Cambia respecto a MongoDB del proyecto anterior                                                                                                             |
+| D4  | Monorepo con **pnpm workspaces**                                                                       | `core` y `shared` se reutilizan sin publicar paquetes                                                                                                                                                                                              |
+| D5  | Motor en `packages/core`, **puro y sin I/O**                                                           | Se testea con datos en memoria, sin mocks, y se explica de forma aislada                                                                                                                                                                           |
+| D6  | Tiempo en **minutos enteros**; fechas en UTC; zona horaria por workspace (`Europe/Madrid` por defecto) | Evita errores de coma flotante y bugs de zona horaria / cambio de hora                                                                                                                                                                             |
+| D7  | Prioridad basada en **presión** = minutos restantes / minutos disponibles hasta la fecha límite        | Tiene sentido físico y es explicable. Los pesos arbitrarios no                                                                                                                                                                                     |
+| D8  | Demo pública con **workspaces anónimos** (cookie, sin cuentas)                                         | Cualquiera puede probarlo en segundos con datos de ejemplo, sin implementar autenticación                                                                                                                                                          |
+| D9  | **Una sola unidad desplegable**: Express sirve la build de `web`                                       | Mismo origen: cookies sencillas, sin CORS, un único servicio                                                                                                                                                                                       |
+| D10 | UI en español; código, comentarios, commits y docs técnicos en inglés                                  | Portfolio legible internacionalmente; la UI es para el público objetivo                                                                                                                                                                            |
+| D11 | React Router + TanStack Query en el frontend                                                           | Estándar para rutas y estado de servidor; evita reinventar caché y estados de carga                                                                                                                                                                |
+| D12 | El plan semanal es **derivado**, no se guarda                                                          | Se recalcula bajo demanda; evita datos obsoletos                                                                                                                                                                                                   |
 
 ## 3. Alcance
 
 ### Incluido en v1
+
 - Asignaturas, tareas (incluye exámenes como tipo con fecha fija), disponibilidad semanal.
 - Vista **Hoy**: ranking explicable de tareas.
 - Registro de tiempo (temporizador y manual) y comparación estimado vs. real.
@@ -42,6 +43,7 @@ El producto no es específico de una universidad: sirve para cualquiera con entr
 - Demo pública con workspace anónimo y datos de ejemplo.
 
 ### Fuera de v1
+
 Cuentas y autenticación, app móvil nativa, colaboración en tiempo real, notificaciones, IA generativa, importación `.ics`/CSV, subtareas, framework de i18n, integraciones con plataformas universitarias.
 
 ## 4. Arquitectura
@@ -67,6 +69,7 @@ proyecto-c/
 ```
 
 **Reglas de dependencia**
+
 - `core` no importa nada del repo ni hace I/O.
 - `shared` puede importar tipos de `core`.
 - `api` usa `core` y `shared`.
@@ -132,6 +135,7 @@ model Availability {
 ```
 
 Notas de diseño:
+
 - `remainingMinutes` es un dato propio, no se deriva solo de las sesiones: la persona sabe mejor que nadie cuánto le queda.
 - Disponibilidad por defecto de un workspace nuevo: lunes a viernes 180 min, sábado y domingo 120 min (ajustable).
 - Todo modelo con datos de usuario lleva `workspaceId`. Borrar un workspace borra todo en cascada.
@@ -141,8 +145,9 @@ Notas de diseño:
 Vive en `packages/core`. Todas las funciones son puras y reciben `now` como parámetro.
 
 ### Entrada
+
 ```ts
-type Importance = 'LOW' | 'MEDIUM' | 'HIGH';
+type Importance = "LOW" | "MEDIUM" | "HIGH";
 type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7; // ISO, 1 = Monday
 
 interface RankableTask {
@@ -150,7 +155,7 @@ interface RankableTask {
   dueAt: Date;
   importance: Importance;
   remainingMinutes: number;
-  status: 'TODO' | 'IN_PROGRESS' | 'DONE';
+  status: "TODO" | "IN_PROGRESS" | "DONE";
 }
 
 interface Availability {
@@ -160,6 +165,7 @@ interface Availability {
 ```
 
 ### Algoritmo
+
 1. Se excluyen las tareas `DONE`.
 2. **Minutos disponibles** hasta la fecha límite: suma de la capacidad de cada día natural, en la zona del workspace, desde **hoy (incluido) hasta el día de `dueAt` (excluido)**. Hoy cuenta entero (limitación v1, documentar en ADR). Una tarea con entrega "dentro de 2 días" cuenta hoy y mañana.
 3. **Presión** = `remainingMinutes / availableMinutes`.
@@ -178,11 +184,12 @@ interface Availability {
 Umbrales, pesos y `maxPressure` se agrupan en un `EngineConfig` con valores por defecto.
 
 ### Salida
+
 ```ts
 interface RankedTask {
   taskId: string;
-  rank: number;                 // 1-based
-  tier: 'OVERDUE' | 'CRITICAL' | 'AT_RISK' | 'ON_TRACK';
+  rank: number; // 1-based
+  tier: "OVERDUE" | "CRITICAL" | "AT_RISK" | "ON_TRACK";
   pressure: number;
   infeasible: boolean;
   importanceWeight: number;
@@ -190,24 +197,26 @@ interface RankedTask {
   remainingMinutes: number;
   availableMinutes: number;
   daysUntilDue: number;
-  reasons: ReasonCode[];        // códigos, no texto: la UI los traduce
+  reasons: ReasonCode[]; // códigos, no texto: la UI los traduce
 }
 ```
+
 `ReasonCode` (lista inicial, el agente puede refinarla): `OVERDUE`, `NO_TIME_LEFT`, `TIGHT_SCHEDULE`, `HIGH_IMPORTANCE`, `COMFORTABLE`.
 
 ### Escenarios de referencia (tests "golden")
+
 Fixture: disponibilidad de **180 min todos los días**, `now` = lunes 09:00 (`Europe/Madrid`).
 
-| # | Escenario | Datos | Resultado esperado |
-|---|---|---|---|
-| S1 | Ejemplo base | A: práctica, entrega miércoles, 240 min, HIGH · B: informe, entrega sábado, 180 min, MEDIUM · C: examen, 10 días, 360 min, HIGH | A: presión 0,67 (240/360), puntuación 1,33, `AT_RISK`. C: 0,20, puntuación 0,40. B: 0,20, puntuación 0,30. **Orden: A, C, B** |
-| S2 | Tarea larga con fecha lejana | L: 1200 min, entrega en 10 días, MEDIUM · Q: 60 min, entrega mañana, HIGH | L: presión 0,67, `AT_RISK`. Q: presión 0,33, `ON_TRACK`. **Orden: L, Q** (la fecha lejana no la hunde) |
-| S3 | Atrasadas | O1: vencida, 60 min, LOW · O2: vencida, 300 min, HIGH · más una `AT_RISK` | Atrasadas primero. Entre ellas por puntuación: **O2, O1**, después la `AT_RISK` |
-| S4 | Entrega hoy | T: 30 min, entrega hoy 18:00 | Disponibles 0 → `CRITICAL`, `infeasible`. Va por delante de cualquier `AT_RISK` |
-| S5 | Completada | Tarea `DONE` | No aparece en el ranking |
-| S6 | Empates | Dos tareas idénticas salvo el `id` | Orden estable por `id`; cambiar el orden de entrada no cambia el resultado |
-| S7 | Sin disponibilidad | Capacidad 0 todos los días, tarea con minutos pendientes | `CRITICAL`, `infeasible` |
-| S8 | Cambio de hora | Horizonte que cruza el cambio horario de `Europe/Madrid` | Los días naturales se cuentan bien (ni 23 ni 25 horas "mágicas") |
+| #   | Escenario                    | Datos                                                                                                                           | Resultado esperado                                                                                                            |
+| --- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| S1  | Ejemplo base                 | A: práctica, entrega miércoles, 240 min, HIGH · B: informe, entrega sábado, 180 min, MEDIUM · C: examen, 10 días, 360 min, HIGH | A: presión 0,67 (240/360), puntuación 1,33, `AT_RISK`. C: 0,20, puntuación 0,40. B: 0,20, puntuación 0,30. **Orden: A, C, B** |
+| S2  | Tarea larga con fecha lejana | L: 1200 min, entrega en 10 días, MEDIUM · Q: 60 min, entrega mañana, HIGH                                                       | L: presión 0,67, `AT_RISK`. Q: presión 0,33, `ON_TRACK`. **Orden: L, Q** (la fecha lejana no la hunde)                        |
+| S3  | Atrasadas                    | O1: vencida, 60 min, LOW · O2: vencida, 300 min, HIGH · más una `AT_RISK`                                                       | Atrasadas primero. Entre ellas por puntuación: **O2, O1**, después la `AT_RISK`                                               |
+| S4  | Entrega hoy                  | T: 30 min, entrega hoy 18:00                                                                                                    | Disponibles 0 → `CRITICAL`, `infeasible`. Va por delante de cualquier `AT_RISK`                                               |
+| S5  | Completada                   | Tarea `DONE`                                                                                                                    | No aparece en el ranking                                                                                                      |
+| S6  | Empates                      | Dos tareas idénticas salvo el `id`                                                                                              | Orden estable por `id`; cambiar el orden de entrada no cambia el resultado                                                    |
+| S7  | Sin disponibilidad           | Capacidad 0 todos los días, tarea con minutos pendientes                                                                        | `CRITICAL`, `infeasible`                                                                                                      |
+| S8  | Cambio de hora               | Horizonte que cruza el cambio horario de `Europe/Madrid`                                                                        | Los días naturales se cuentan bien (ni 23 ni 25 horas "mágicas")                                                              |
 
 Propiedades a comprobar: el resultado no depende del orden de entrada; más minutos restantes nunca baja la presión; una fecha límite más tardía nunca la sube; el ranking es idempotente.
 
@@ -225,20 +234,20 @@ Misma ubicación y mismas reglas de pureza que el motor. Se implementa en la fas
 
 ## 8. API (`/api/v1`)
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| POST | `/workspace/session` | Crea o reanuda el workspace anónimo (cookie) |
-| GET/POST | `/courses` | Listar / crear asignaturas |
-| PATCH/DELETE | `/courses/:id` | Editar, archivar o borrar |
-| GET/POST | `/tasks` | Listar (filtros, orden) / crear |
-| GET/PATCH/DELETE | `/tasks/:id` | Detalle, edición, borrado |
-| GET | `/today` | Ranking con desglose (usa `core`) |
-| GET/PUT | `/availability` | Disponibilidad semanal |
-| POST | `/sessions/start`, `/sessions/stop`, `/sessions/manual` | Registro de tiempo |
-| GET | `/sessions` | Historial |
-| GET | `/plan/week` | Plan semanal y déficits |
-| GET | `/stats/summary` | Estadísticas |
-| POST | `/demo/reset` | Restaura los datos de ejemplo del workspace |
+| Método           | Ruta                                                    | Descripción                                  |
+| ---------------- | ------------------------------------------------------- | -------------------------------------------- |
+| POST             | `/workspace/session`                                    | Crea o reanuda el workspace anónimo (cookie) |
+| GET/POST         | `/courses`                                              | Listar / crear asignaturas                   |
+| PATCH/DELETE     | `/courses/:id`                                          | Editar, archivar o borrar                    |
+| GET/POST         | `/tasks`                                                | Listar (filtros, orden) / crear              |
+| GET/PATCH/DELETE | `/tasks/:id`                                            | Detalle, edición, borrado                    |
+| GET              | `/today`                                                | Ranking con desglose (usa `core`)            |
+| GET/PUT          | `/availability`                                         | Disponibilidad semanal                       |
+| POST             | `/sessions/start`, `/sessions/stop`, `/sessions/manual` | Registro de tiempo                           |
+| GET              | `/sessions`                                             | Historial                                    |
+| GET              | `/plan/week`                                            | Plan semanal y déficits                      |
+| GET              | `/stats/summary`                                        | Estadísticas                                 |
+| POST             | `/demo/reset`                                           | Restaura los datos de ejemplo del workspace  |
 
 Formato de error: `{ "error": { "code", "message", "details?" } }`.
 
@@ -257,6 +266,7 @@ Formato de error: `{ "error": { "code", "message", "details?" } }`.
 Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 a 3 forman un proyecto presentable por sí solas**: si el tiempo falla, ahí hay un corte limpio. Lo demás es ampliación.
 
 ### Fase 0 — Fundaciones (S)
+
 - [x] **P0-T1** Monorepo con pnpm workspaces, `tsconfig.base.json`, versión de Node fijada (`.nvmrc` y `engines`), `.gitignore`, `.editorconfig`, README mínimo.
 - [x] **P0-T2** ESLint (typescript-eslint) + Prettier + Vitest. Scripts `dev`, `build`, `lint`, `typecheck`, `test`, `check`.
 - [x] **P0-T3** `docker-compose.yml` con Postgres (base de desarrollo y de test) y `.env.example`. Scripts `db:up`, `db:migrate`, `db:seed`.
@@ -269,6 +279,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 **Criterio:** CI en verde; `pnpm dev` levanta web y api; `/health` informa del estado de la base de datos.
 
 ### Fase 1 — Motor de prioridades (M)
+
 - [ ] **P1-T1** Tipos de dominio y `EngineConfig` con valores por defecto en `core`.
 - [ ] **P1-T2** `availableMinutes` con lógica de días naturales y zona horaria (elegir librería de fechas en un ADR). Tests con cambio de hora de `Europe/Madrid`.
 - [ ] **P1-T3** Cálculo de presión y niveles, incluyendo `infeasible` y `maxPressure`.
@@ -280,6 +291,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 **Criterio:** todos los escenarios pasan, el orden resultante tiene sentido al revisarlo a mano y el documento del motor explica cada decisión.
 
 ### Fase 2 — Primer corte vertical (M)
+
 > El aislamiento por workspace se implementa **desde el primer endpoint**, no se añade después.
 
 - [ ] **P2-T1** Esquema Prisma y migración (Workspace, Course, Task, Availability); `docs/data-model.md`.
@@ -295,6 +307,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 **Criterio:** creo asignaturas y tareas reales y la vista Hoy las ordena de forma coherente y explicada. Un test demuestra que un workspace no puede ver datos de otro.
 
 ### Fase 3 — Demo desplegada (S)
+
 - [ ] **P3-T1** Datos de ejemplo con fechas relativas y acción de restaurar demo.
 - [ ] **P3-T2** Límites: tamaño de cuerpo, cuotas por workspace y rate limiting.
 - [ ] **P3-T3** Tarea programada de limpieza de workspaces inactivos, con test.
@@ -305,6 +318,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 **Criterio:** enlace público funcionando que un tercero puede probar sin registrarse, con datos de ejemplo y README claro.
 
 ### Fase 4 — Registro de tiempo (M)
+
 - [ ] **P4-T1** Modelo `StudySession`, migración y API (`start`, `stop`, `manual`, `list`). Solo una sesión activa por workspace.
 - [ ] **P4-T2** Política para sesiones huérfanas (cerrar con un tope máximo de duración o al iniciar una nueva) y para pausas: pausar cierra el tramo, reanudar abre uno nuevo.
 - [ ] **P4-T3** Al finalizar una sesión se propone nuevo `remainingMinutes` (por defecto `max(0, restante − duración)`) y la persona lo confirma o corrige.
@@ -315,6 +329,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 **Criterio:** el tiempo registrado persiste tras cerrar el navegador y actualiza lo que queda por hacer.
 
 ### Fase 5 — Planificación semanal (L)
+
 - [ ] **P5-T1** Documento de especificación del planner y tipos en `core`.
 - [ ] **P5-T2** Comprobación de viabilidad por carga acumulada y cálculo del déficit. Tests S9.
 - [ ] **P5-T3** Reparto voraz EDF con bloque mínimo. Tests S10 y casos límite.
@@ -327,6 +342,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 > Si esta fase se complica, se reduce a "recomendación diaria" usando solo P5-T2 y `GET /today` sin perder el valor del proyecto.
 
 ### Fase 6 — Visualización (M)
+
 - [ ] **P6-T1** Dashboard: pendientes, atrasadas, próximas entregas, progreso.
 - [ ] **P6-T2** Calendario semanal y mensual con tareas y bloques planificados (justificar en ADR si se usa librería o cuadrícula propia).
 - [ ] **P6-T3** Gráficas con Recharts: horas por asignatura, estimado vs. real, tareas completadas.
@@ -335,6 +351,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 **Criterio:** de un vistazo se ve qué hacer hoy y cómo va el periodo.
 
 ### Fase 7 — Estimaciones adaptativas y cierre (M)
+
 - [ ] **P7-T1** En `core`: factor de corrección = mediana de (real / estimado) de las últimas N tareas completadas de la misma asignatura o tipo; mínimo 3 muestras y límites razonables (p. ej. 0,5 a 3). Tests.
 - [ ] **P7-T2** API y UI: **estimación sugerida** al crear una tarea. Es una sugerencia, nunca se aplica sola.
 - [ ] **P7-T3** Logging estructurado, error boundary en el frontend y revisión de manejo de errores.
@@ -368,12 +385,14 @@ and propose a Conventional Commit message.
 ## 13. Riesgos y decisiones abiertas
 
 **Riesgos**
+
 - **Fase 5** es la más difícil: empezar con la heurística voraz y no buscar un óptimo.
 - **Zonas horarias y cambio de hora:** fuente típica de bugs; por eso hay tests dedicados desde la fase 1.
 - **Abuso de la demo pública:** mitigado con límites, rate limiting y limpieza; revisar tras el despliegue.
 - **Crecimiento de alcance:** la lista "Fuera de v1" y el corte tras la fase 3 existen para protegerse de esto.
 
 **Decisiones abiertas** (cerrar en el ADR de la fase correspondiente)
+
 - Nombre definitivo del proyecto.
 - Proveedor de despliegue (fase 3).
 - Disponibilidad por defecto de un workspace nuevo (valores propuestos en la sección 5).

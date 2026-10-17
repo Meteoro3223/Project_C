@@ -48,10 +48,7 @@ describe("GET /api/v1/health", () => {
 
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ status: "degraded", db: "down" });
-    expect(console.error).toHaveBeenCalledWith(
-      "Health check database probe failed:",
-      "db down",
-    );
+    expect(console.error).toHaveBeenCalledWith("Health check database probe failed:", "db down");
   });
 
   it("returns the shared error shape for unknown routes", async () => {
