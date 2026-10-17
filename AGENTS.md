@@ -30,15 +30,15 @@ If these conflict with a request, stop and ask instead of guessing.
 
 Defined in task `P0-T2`. If a script is missing, create it there rather than inventing an alternative.
 
-| Command | Purpose |
-|---|---|
-| `pnpm install` | install dependencies |
-| `pnpm dev` | run web and api in development |
-| `pnpm check` | lint + typecheck + test (run before every commit) |
-| `pnpm lint` / `pnpm typecheck` / `pnpm test` | individual checks |
-| `pnpm build` | production build of all packages |
-| `pnpm db:up` | start Postgres via Docker Compose |
-| `pnpm db:migrate` / `pnpm db:seed` | Prisma migrations / demo seed |
+| Command                                      | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `pnpm install`                               | install dependencies                              |
+| `pnpm dev`                                   | run web and api in development                    |
+| `pnpm check`                                 | lint + typecheck + test (run before every commit) |
+| `pnpm lint` / `pnpm typecheck` / `pnpm test` | individual checks                                 |
+| `pnpm build`                                 | production build of all packages                  |
+| `pnpm db:up`                                 | start Postgres via Docker Compose                 |
+| `pnpm db:migrate` / `pnpm db:seed`           | Prisma migrations / demo seed                     |
 
 ## Repository layout and dependency rules
 
@@ -60,24 +60,28 @@ Allowed imports:
 ## Code conventions
 
 **General**
+
 - Language: code, comments, commit messages, docs and README in **English**. UI copy in **Spanish (es-ES)**, centralised in one module (no i18n framework in v1).
 - TypeScript `strict`, plus `noUncheckedIndexedAccess`. No `any`. No non-null assertions (`!`) without a comment explaining why.
 - Prefer named exports. Prefer string-literal unions over TS `enum`. Map Prisma enums to unions at the repository boundary.
 - Validate all external input with Zod at the edge (API routes). Never trust types alone for request data.
 
 **Time and units**
+
 - Durations are **integer minutes** everywhere. Never floats for time.
 - Store timestamps in UTC. Calendar-day logic (e.g. availability per day) uses the workspace timezone (default `Europe/Madrid`).
 - Inside `core`, never call `new Date()` or `Date.now()`. Receive `now: Date` as a parameter so everything is deterministic and testable.
 - No randomness in `core`.
 
 **API (`apps/api`)**
+
 - Layers: `routes` (HTTP + validation) → `controllers` (request/response) → `services` (business rules) → `repositories` (Prisma access).
 - Build the app through a `createApp()` factory, separate from `listen()`, so Supertest can use it.
 - Error response shape: `{ "error": { "code": string, "message": string, "details"?: unknown } }`. Use typed error classes, one central error handler.
 - All routes live under `/api/v1`.
 
 **Web (`apps/web`)**
+
 - Functional components and hooks. Server state with TanStack Query. No business logic in components.
 - Typed API client built on the `shared` schemas.
 - Accessible by default: semantic HTML, labelled inputs, keyboard-usable controls, visible focus. Provide empty and error states.
