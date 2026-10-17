@@ -11,10 +11,12 @@
   "scripts": {
     "dev": "pnpm -r --if-present --parallel run dev",
     "build": "pnpm -r --if-present run build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && pnpm -r --if-present run typecheck",
     "test": "vitest run",
-    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "db:up": "docker compose up -d db",
     "db:migrate": "pnpm --filter @proyecto-c/api run db:migrate",
     "db:seed": "node -e \"console.error('Seed is not configured yet (P3-T1): nothing to seed.'); process.exit(1)\""

@@ -114,14 +114,18 @@ describe("createEngineConfig validation", () => {
   });
 
   it("rejects atRiskThreshold >= criticalThreshold", () => {
-    const error = captureError(() => createEngineConfig({ atRiskThreshold: 1, criticalThreshold: 1 }));
+    const error = captureError(() =>
+      createEngineConfig({ atRiskThreshold: 1, criticalThreshold: 1 }),
+    );
 
     expect(error).toBeInstanceOf(RangeError);
     expect(error.message).toContain("atRiskThreshold");
   });
 
   it("rejects maxPressure below criticalThreshold", () => {
-    const error = captureError(() => createEngineConfig({ maxPressure: 0.5, criticalThreshold: 1 }));
+    const error = captureError(() =>
+      createEngineConfig({ maxPressure: 0.5, criticalThreshold: 1 }),
+    );
 
     expect(error).toBeInstanceOf(RangeError);
     expect(error.message).toContain("maxPressure");
@@ -130,8 +134,14 @@ describe("createEngineConfig validation", () => {
   it("rejects non-positive or non-finite importance weights", () => {
     const cases: readonly { overrides: EngineConfigOverrides; field: string }[] = [
       { overrides: { importanceWeights: { LOW: 0 } }, field: "importanceWeights.LOW" },
-      { overrides: { importanceWeights: { MEDIUM: Number.NaN } }, field: "importanceWeights.MEDIUM" },
-      { overrides: { importanceWeights: { HIGH: Number.POSITIVE_INFINITY } }, field: "importanceWeights.HIGH" },
+      {
+        overrides: { importanceWeights: { MEDIUM: Number.NaN } },
+        field: "importanceWeights.MEDIUM",
+      },
+      {
+        overrides: { importanceWeights: { HIGH: Number.POSITIVE_INFINITY } },
+        field: "importanceWeights.HIGH",
+      },
     ];
 
     for (const { overrides, field } of cases) {

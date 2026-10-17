@@ -30,15 +30,16 @@ If these conflict with a request, stop and ask instead of guessing.
 
 Defined in task `P0-T2`. If a script is missing, create it there rather than inventing an alternative.
 
-| Command                                      | Purpose                                           |
-| -------------------------------------------- | ------------------------------------------------- |
-| `pnpm install`                               | install dependencies                              |
-| `pnpm dev`                                   | run web and api in development                    |
-| `pnpm check`                                 | lint + typecheck + test (run before every commit) |
-| `pnpm lint` / `pnpm typecheck` / `pnpm test` | individual checks                                 |
-| `pnpm build`                                 | production build of all packages                  |
-| `pnpm db:up`                                 | start Postgres via Docker Compose                 |
-| `pnpm db:migrate` / `pnpm db:seed`           | Prisma migrations / demo seed                     |
+| Command                                      | Purpose                                                    |
+| -------------------------------------------- | ---------------------------------------------------------- |
+| `pnpm install`                               | install dependencies                                       |
+| `pnpm dev`                                   | run web and api in development                             |
+| `pnpm check`                                 | format + lint + typecheck + test (run before every commit) |
+| `pnpm format` / `pnpm format:check`          | apply / verify Prettier formatting                         |
+| `pnpm lint` / `pnpm typecheck` / `pnpm test` | individual checks                                          |
+| `pnpm build`                                 | production build of all packages                           |
+| `pnpm db:up`                                 | start Postgres via Docker Compose                          |
+| `pnpm db:migrate` / `pnpm db:seed`           | Prisma migrations / demo seed                              |
 
 ## Repository layout and dependency rules
 

@@ -43,5 +43,15 @@ reachable) and the web app proxies to it during development.
 pnpm install
 ```
 
-Tooling scripts (`dev`, `build`, `lint`, `typecheck`, `test`, `check`) are
-defined in P0-T2.
+Tooling scripts (`dev`, `build`, `format`, `format:check`, `lint`, `typecheck`,
+`test`, `check`) are defined in P0-T2.
+
+## Formatting
+
+Code, docs and JSON are formatted with Prettier (options in `.prettierrc.json`,
+ignores in `.prettierignore`):
+
+```sh
+pnpm format        # rewrite files in place
+pnpm format:check  # verify without writing (runs as part of pnpm check)
+```

@@ -19,11 +19,7 @@ export type Tier = "OVERDUE" | "CRITICAL" | "AT_RISK" | "ON_TRACK";
 
 /** Machine-readable explanation codes; the UI translates them to Spanish. */
 export type ReasonCode =
-  | "OVERDUE"
-  | "NO_TIME_LEFT"
-  | "TIGHT_SCHEDULE"
-  | "HIGH_IMPORTANCE"
-  | "COMFORTABLE";
+  "OVERDUE" | "NO_TIME_LEFT" | "TIGHT_SCHEDULE" | "HIGH_IMPORTANCE" | "COMFORTABLE";
 
 /** The minimal task shape the priority engine needs (PLAN section 6, Input). */
 export interface RankableTask {
