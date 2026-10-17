@@ -77,7 +77,10 @@ export function createEngineConfig(overrides: EngineConfigOverrides = {}): Engin
   assertPositiveFinite("importanceWeights.MEDIUM", importanceWeights.MEDIUM);
   assertPositiveFinite("importanceWeights.HIGH", importanceWeights.HIGH);
 
-  if (importanceWeights.LOW > importanceWeights.MEDIUM || importanceWeights.MEDIUM > importanceWeights.HIGH) {
+  if (
+    importanceWeights.LOW > importanceWeights.MEDIUM ||
+    importanceWeights.MEDIUM > importanceWeights.HIGH
+  ) {
     throw new RangeError(
       "importanceWeights must satisfy LOW <= MEDIUM <= HIGH " +
         `(got LOW=${importanceWeights.LOW}, MEDIUM=${importanceWeights.MEDIUM}, HIGH=${importanceWeights.HIGH})`,
