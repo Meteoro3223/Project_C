@@ -282,7 +282,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 
 - [x] **P1-T1** Tipos de dominio y `EngineConfig` con valores por defecto en `core`.
 - [x] **P1-T2** `availableMinutes` con lógica de días naturales y zona horaria (elección de librería de fechas: ADR-0004). Tests con cambio de hora de `Europe/Madrid`.
-- [ ] **P1-T3** Cálculo de presión y niveles, incluyendo `infeasible` y `maxPressure`.
+- [x] **P1-T3** Cálculo de presión y niveles, incluyendo `infeasible` y `maxPressure`.
 - [ ] **P1-T4** `rankTasks` con desglose, razones y orden determinista.
 - [ ] **P1-T5** Suite de tests tabulares con los escenarios S1–S8.
 - [ ] **P1-T6** Tests de propiedades (independencia del orden de entrada, monotonía, idempotencia).
