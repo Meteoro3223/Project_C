@@ -17,6 +17,29 @@ const WEEKDAYS: readonly Weekday[] = [1, 2, 3, 4, 5, 6, 7];
 const civilDateFormatters = new Map<string, Intl.DateTimeFormat>();
 
 /**
+ * Civil-day difference from `now` to `dueAt` in `timezone` (PLAN section 6).
+ *
+ * `0` means both instants fall on the same civil date, a positive value counts
+ * days into the future and a negative value counts days into the past. Only
+ * calendar dates are compared, so the 23- and 25-hour days around a DST
+ * transition still count as one day each; see
+ * `docs/adr/0004-calendar-day-arithmetic.md`.
+ *
+ * Pure and deterministic. Throws a `RangeError` naming the value for an invalid
+ * timezone, and one naming the argument for an invalid `now` or `dueAt`.
+ */
+export function civilDaysBetween(timezone: string, now: Date, dueAt: Date): number {
+  assertValidDate("now", now);
+  assertValidDate("dueAt", dueAt);
+
+  const formatter = getCivilDateFormatter(timezone);
+  const startDay = civilDayNumber(formatter, now);
+  const endDay = civilDayNumber(formatter, dueAt);
+
+  return (endDay - startDay) / MS_PER_CIVIL_DAY;
+}
+
+/**
  * Available minutes until a deadline (PLAN section 6, step 2).
  *
  * Sums the workspace's weekly capacity over every calendar day from the civil
@@ -30,18 +53,14 @@ const civilDateFormatters = new Map<string, Intl.DateTimeFormat>();
  * `now` or `dueAt`.
  */
 export function availableMinutes(availability: WeeklyAvailability, now: Date, dueAt: Date): number {
-  assertValidDate("now", now);
-  assertValidDate("dueAt", dueAt);
-
-  const formatter = getCivilDateFormatter(availability.timezone);
-  const startDay = civilDayNumber(formatter, now);
-  const endDay = civilDayNumber(formatter, dueAt);
-
-  const days = (endDay - startDay) / MS_PER_CIVIL_DAY;
+  const days = civilDaysBetween(availability.timezone, now, dueAt);
   // Due today, overdue, or a deadline earlier today: nothing left to plan.
   if (days <= 0) {
     return 0;
   }
+
+  const formatter = getCivilDateFormatter(availability.timezone);
+  const startDay = civilDayNumber(formatter, now);
 
   const weekTotal = WEEKDAYS.reduce(
     (total, weekday) => total + availability.minutesByWeekday[weekday],
