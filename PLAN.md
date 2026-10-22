@@ -211,7 +211,7 @@ Fixture: disponibilidad de **180 min todos los días**, `now` = lunes 09:00 (`Eu
 | --- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | S1  | Ejemplo base                 | A: práctica, entrega miércoles, 240 min, HIGH · B: informe, entrega sábado, 180 min, MEDIUM · C: examen, 10 días, 360 min, HIGH | A: presión 0,67 (240/360), puntuación 1,33, `AT_RISK`. C: 0,20, puntuación 0,40. B: 0,20, puntuación 0,30. **Orden: A, C, B** |
 | S2  | Tarea larga con fecha lejana | L: 1200 min, entrega en 10 días, MEDIUM · Q: 60 min, entrega mañana, HIGH                                                       | L: presión 0,67, `AT_RISK`. Q: presión 0,33, `ON_TRACK`. **Orden: L, Q** (la fecha lejana no la hunde)                        |
-| S3  | Atrasadas                    | O1: vencida, 60 min, LOW · O2: vencida, 300 min, HIGH · más una `AT_RISK`                                                       | Atrasadas primero. Entre ellas por puntuación: **O2, O1**, después la `AT_RISK`                                               |
+| S3  | Atrasadas                    | O1: vencida, 60 min, LOW · O2: vencida, 300 min, HIGH · O3: vencida, 0 min, LOW · más una `AT_RISK`                             | Atrasadas primero. Entre ellas por puntuación: **O2, O1, O3**, después la `AT_RISK`                                           |
 | S4  | Entrega hoy                  | T: 30 min, entrega hoy 18:00                                                                                                    | Disponibles 0 → `CRITICAL`, `infeasible`. Va por delante de cualquier `AT_RISK`                                               |
 | S5  | Completada                   | Tarea `DONE`                                                                                                                    | No aparece en el ranking                                                                                                      |
 | S6  | Empates                      | Dos tareas idénticas salvo el `id`                                                                                              | Orden estable por `id`; cambiar el orden de entrada no cambia el resultado                                                    |
@@ -286,7 +286,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 - [x] **P1-T4** `rankTasks` con desglose, razones y orden determinista.
 - [x] **P1-T5** Suite de tests tabulares con los escenarios S1–S8.
 - [ ] **P1-T6** Tests de propiedades (independencia del orden de entrada, monotonía, idempotencia).
-- [ ] **P1-T7** `docs/priority-engine.md` con la fórmula, ejemplos y limitaciones; ADR-0005 (presión como métrica) y ADR-0006 (días contados con fecha límite exclusiva).
+- [x] **P1-T7** `docs/priority-engine.md` con la fórmula, ejemplos y limitaciones; ADR-0005 (presión como métrica) y ADR-0006 (días contados con fecha límite exclusiva).
 
 **Criterio:** todos los escenarios pasan, el orden resultante tiene sentido al revisarlo a mano y el documento del motor explica cada decisión.
 
@@ -396,5 +396,5 @@ and propose a Conventional Commit message.
 - Nombre definitivo del proyecto.
 - Proveedor de despliegue (fase 3).
 - Disponibilidad por defecto de un workspace nuevo (valores propuestos en la sección 5).
-- Librería de fechas (fase 1) y de calendario (fase 6).
+- Librería de fechas (fase 1): **decidida** en ADR-0004 (sin librería; `Intl.DateTimeFormat`). Librería de calendario (fase 6): abierta.
 - Si se añade autenticación real después de la fase 3.
