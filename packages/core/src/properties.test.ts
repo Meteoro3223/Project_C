@@ -428,7 +428,7 @@ describe("property: output shape", () => {
 });
 
 describe("property: tiers and pressure invariants", () => {
-  it("derives overdue, infeasibility, bounds, reasons and tiers from the input", () => {
+  it("derives overdue, no-capacity state, bounds, reasons and tiers from the input", () => {
     const seed = SEEDS.invariants;
     const rng = createRng(seed);
 
@@ -446,8 +446,8 @@ describe("property: tiers and pressure invariants", () => {
         const overdue = task.dueAt.getTime() < now.getTime();
         expect(entry.tier === "OVERDUE", context(`OVERDUE must be ${overdue}`)).toBe(overdue);
 
-        const infeasible = entry.availableMinutes === 0 && entry.remainingMinutes > 0;
-        expect(entry.infeasible, context(`infeasible must be ${infeasible}`)).toBe(infeasible);
+        const noCapacity = entry.availableMinutes === 0 && entry.remainingMinutes > 0;
+        expect(entry.noCapacity, context(`noCapacity must be ${noCapacity}`)).toBe(noCapacity);
 
         expect(
           entry.pressure >= 0 && entry.pressure <= DEFAULT_ENGINE_CONFIG.maxPressure,
@@ -458,8 +458,8 @@ describe("property: tiers and pressure invariants", () => {
 
         expect(
           entry.reasons.includes("NO_TIME_LEFT"),
-          context(`NO_TIME_LEFT must be ${infeasible}`),
-        ).toBe(infeasible);
+          context(`NO_TIME_LEFT must be ${noCapacity}`),
+        ).toBe(noCapacity);
 
         if (overdue) {
           continue;

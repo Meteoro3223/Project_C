@@ -78,7 +78,7 @@ describe("S1: base example", () => {
     expect(ranking[0]).toMatchObject({
       taskId: "A",
       tier: "AT_RISK",
-      infeasible: false,
+      noCapacity: false,
       importanceWeight: 2,
       remainingMinutes: 240,
       availableMinutes: 360,
@@ -93,7 +93,7 @@ describe("S1: base example", () => {
     expect(ranking[2]).toMatchObject({
       taskId: "B",
       tier: "ON_TRACK",
-      infeasible: false,
+      noCapacity: false,
       importanceWeight: 1.5,
       remainingMinutes: 180,
       availableMinutes: 900,
@@ -108,7 +108,7 @@ describe("S1: base example", () => {
     expect(ranking[1]).toMatchObject({
       taskId: "C",
       tier: "ON_TRACK",
-      infeasible: false,
+      noCapacity: false,
       importanceWeight: 2,
       remainingMinutes: 360,
       availableMinutes: 1800,
@@ -204,22 +204,22 @@ describe("S3: overdue tasks", () => {
     expect(ranking.map(({ taskId }) => taskId)).toEqual(["O2", "O1", "O3", "X"]);
   });
 
-  it("reports O1 as OVERDUE, infeasible, pressure 10 and score 10", () => {
+  it("reports O1 as OVERDUE with no capacity, pressure 10 and score 10", () => {
     expect(ranking[1]).toMatchObject({
       taskId: "O1",
       tier: "OVERDUE",
-      infeasible: true,
+      noCapacity: true,
       reasons: ["OVERDUE", "NO_TIME_LEFT"],
     });
     expect(ranking[1]?.pressure).toBe(10);
     expect(ranking[1]?.score).toBe(10);
   });
 
-  it("reports O2 as OVERDUE, infeasible, pressure 10 and score 20", () => {
+  it("reports O2 as OVERDUE with no capacity, pressure 10 and score 20", () => {
     expect(ranking[0]).toMatchObject({
       taskId: "O2",
       tier: "OVERDUE",
-      infeasible: true,
+      noCapacity: true,
       reasons: ["OVERDUE", "NO_TIME_LEFT", "HIGH_IMPORTANCE"],
     });
     expect(ranking[0]?.pressure).toBe(10);
@@ -230,7 +230,7 @@ describe("S3: overdue tasks", () => {
     expect(ranking[2]).toMatchObject({
       taskId: "O3",
       tier: "OVERDUE",
-      infeasible: false,
+      noCapacity: false,
       reasons: ["OVERDUE"],
     });
     expect(ranking[2]?.pressure).toBe(0);
@@ -248,7 +248,7 @@ describe("S3: overdue tasks", () => {
 });
 
 describe("S4: deadline today", () => {
-  it("makes a same-day deadline CRITICAL, infeasible and ahead of AT_RISK", () => {
+  it("makes a same-day deadline CRITICAL with no capacity and ahead of AT_RISK", () => {
     // T: due today at 18:00 local -> available 0.
     // A: due Wed 14 Oct -> AT_RISK, pressure 2/3.
     const ranking = rankTasks(
@@ -274,7 +274,7 @@ describe("S4: deadline today", () => {
     expect(ranking[0]).toMatchObject({
       taskId: "T",
       tier: "CRITICAL",
-      infeasible: true,
+      noCapacity: true,
       availableMinutes: 0,
       daysUntilDue: 0,
     });
@@ -298,7 +298,7 @@ describe("S4: deadline today", () => {
     );
 
     expect(atNow[0]?.tier).toBe("CRITICAL");
-    expect(atNow[0]?.infeasible).toBe(true);
+    expect(atNow[0]?.noCapacity).toBe(true);
 
     const oneMillisecondBefore = new Date(NOW.getTime() - 1);
     const overdue = rankTasks(
@@ -399,7 +399,7 @@ describe("S6: ties", () => {
 });
 
 describe("S7: no availability", () => {
-  it("marks a pending task CRITICAL and infeasible when every day has zero capacity", () => {
+  it("marks a pending task CRITICAL with no capacity when every day has zero capacity", () => {
     const ranking = rankTasks(
       [
         makeTask({
@@ -416,7 +416,7 @@ describe("S7: no availability", () => {
     expect(ranking[0]).toMatchObject({
       taskId: "pending",
       tier: "CRITICAL",
-      infeasible: true,
+      noCapacity: true,
       availableMinutes: 0,
       reasons: ["NO_TIME_LEFT"],
     });
@@ -440,7 +440,7 @@ describe("S7: no availability", () => {
     expect(ranking[0]).toMatchObject({
       taskId: "empty",
       tier: "ON_TRACK",
-      infeasible: false,
+      noCapacity: false,
       availableMinutes: 0,
     });
     expect(ranking[0]?.pressure).toBe(0);

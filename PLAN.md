@@ -170,7 +170,7 @@ interface WeeklyAvailability {
 2. **Minutos disponibles** hasta la fecha límite: suma de la capacidad de cada día natural, en la zona del workspace, desde **hoy (incluido) hasta el día de `dueAt` (excluido)**. Hoy cuenta entero (limitación v1, documentar en ADR). Una tarea con entrega "dentro de 2 días" cuenta hoy y mañana.
 3. **Presión** = `remainingMinutes / availableMinutes`.
    - `remainingMinutes = 0` → presión 0.
-   - `availableMinutes = 0` y quedan minutos → presión = `maxPressure` (por defecto 10) y `infeasible = true`.
+   - `availableMinutes = 0` y quedan minutos → presión = `maxPressure` (por defecto 10) y `noCapacity = true`.
    - La presión se limita a `maxPressure` para que el resultado sea serializable.
 4. **Nivel (tier)**, en este orden de prioridad:
    - `OVERDUE`: `dueAt < now`.
@@ -191,7 +191,7 @@ interface RankedTask {
   rank: number; // 1-based
   tier: "OVERDUE" | "CRITICAL" | "AT_RISK" | "ON_TRACK";
   pressure: number;
-  infeasible: boolean;
+  noCapacity: boolean;
   importanceWeight: number;
   score: number;
   remainingMinutes: number;
@@ -212,10 +212,10 @@ Fixture: disponibilidad de **180 min todos los días**, `now` = lunes 09:00 (`Eu
 | S1  | Ejemplo base                 | A: práctica, entrega miércoles, 240 min, HIGH · B: informe, entrega sábado, 180 min, MEDIUM · C: examen, 10 días, 360 min, HIGH | A: presión 0,67 (240/360), puntuación 1,33, `AT_RISK`. C: 0,20, puntuación 0,40. B: 0,20, puntuación 0,30. **Orden: A, C, B** |
 | S2  | Tarea larga con fecha lejana | L: 1200 min, entrega en 10 días, MEDIUM · Q: 60 min, entrega mañana, HIGH                                                       | L: presión 0,67, `AT_RISK`. Q: presión 0,33, `ON_TRACK`. **Orden: L, Q** (la fecha lejana no la hunde)                        |
 | S3  | Atrasadas                    | O1: vencida, 60 min, LOW · O2: vencida, 300 min, HIGH · O3: vencida, 0 min, LOW · más una `AT_RISK`                             | Atrasadas primero. Entre ellas por puntuación: **O2, O1, O3**, después la `AT_RISK`                                           |
-| S4  | Entrega hoy                  | T: 30 min, entrega hoy 18:00                                                                                                    | Disponibles 0 → `CRITICAL`, `infeasible`. Va por delante de cualquier `AT_RISK`                                               |
+| S4  | Entrega hoy                  | T: 30 min, entrega hoy 18:00                                                                                                    | Disponibles 0 → `CRITICAL`, `noCapacity`. Va por delante de cualquier `AT_RISK`                                               |
 | S5  | Completada                   | Tarea `DONE`                                                                                                                    | No aparece en el ranking                                                                                                      |
 | S6  | Empates                      | Dos tareas idénticas salvo el `id`                                                                                              | Orden estable por `id`; cambiar el orden de entrada no cambia el resultado                                                    |
-| S7  | Sin disponibilidad           | Capacidad 0 todos los días, tarea con minutos pendientes                                                                        | `CRITICAL`, `infeasible`                                                                                                      |
+| S7  | Sin disponibilidad           | Capacidad 0 todos los días, tarea con minutos pendientes                                                                        | `CRITICAL`, `noCapacity`                                                                                                      |
 | S8  | Cambio de hora               | Horizonte que cruza el cambio horario de `Europe/Madrid`                                                                        | Los días naturales se cuentan bien (ni 23 ni 25 horas "mágicas")                                                              |
 
 Propiedades a comprobar: el resultado no depende del orden de entrada; más minutos restantes nunca baja la presión; una fecha límite más tardía nunca la sube; el ranking es idempotente.
@@ -282,7 +282,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 
 - [x] **P1-T1** Tipos de dominio y `EngineConfig` con valores por defecto en `core`.
 - [x] **P1-T2** `availableMinutes` con lógica de días naturales y zona horaria (elección de librería de fechas: ADR-0004). Tests con cambio de hora de `Europe/Madrid`.
-- [x] **P1-T3** Cálculo de presión y niveles, incluyendo `infeasible` y `maxPressure`.
+- [x] **P1-T3** Cálculo de presión y niveles, incluyendo `noCapacity` y `maxPressure`.
 - [x] **P1-T4** `rankTasks` con desglose, razones y orden determinista.
 - [x] **P1-T5** Suite de tests tabulares con los escenarios S1–S8.
 - [x] **P1-T6** Tests de propiedades (independencia del orden de entrada, monotonía, idempotencia).

@@ -47,7 +47,7 @@ export interface RankedTask {
   readonly rank: number;
   readonly tier: Tier;
   readonly pressure: number;
-  readonly infeasible: boolean;
+  readonly noCapacity: boolean;
   readonly importanceWeight: number;
   readonly score: number;
   readonly remainingMinutes: number;

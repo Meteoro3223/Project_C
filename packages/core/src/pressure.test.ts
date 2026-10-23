@@ -15,7 +15,7 @@ interface PressureCase {
   readonly remainingMinutes: number;
   readonly availableMinutes: number;
   readonly expectedPressure: number;
-  readonly expectedInfeasible: boolean;
+  readonly expectedNoCapacity: boolean;
   readonly config?: EngineConfig;
 }
 
@@ -26,7 +26,7 @@ const PRESSURE_CASES: readonly PressureCase[] = [
     remainingMinutes: 240,
     availableMinutes: 360,
     expectedPressure: 2 / 3,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     // S1-B: 180 min/day, Monday to Saturday's exclusive deadline = 900 min.
@@ -34,7 +34,7 @@ const PRESSURE_CASES: readonly PressureCase[] = [
     remainingMinutes: 180,
     availableMinutes: 900,
     expectedPressure: 1 / 5,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     // S1-C: 180 min/day over 10 days = 1800 min.
@@ -42,70 +42,70 @@ const PRESSURE_CASES: readonly PressureCase[] = [
     remainingMinutes: 360,
     availableMinutes: 1800,
     expectedPressure: 1 / 5,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     name: "returns 0 when nothing remains, even with no availability",
     remainingMinutes: 0,
     availableMinutes: 0,
     expectedPressure: 0,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     name: "returns 0 when nothing remains and time is available",
     remainingMinutes: 0,
     availableMinutes: 360,
     expectedPressure: 0,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
-    name: "returns maxPressure and marks infeasible when no time is available",
+    name: "returns maxPressure and sets noCapacity when no time is available",
     remainingMinutes: 60,
     availableMinutes: 0,
     expectedPressure: 10,
-    expectedInfeasible: true,
+    expectedNoCapacity: true,
   },
   {
     name: "caps a pressure above maxPressure but stays feasible",
     remainingMinutes: 3000,
     availableMinutes: 180,
     expectedPressure: 10,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     name: "keeps a pressure exactly at maxPressure",
     remainingMinutes: 1800,
     availableMinutes: 180,
     expectedPressure: 10,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     name: "keeps a pressure of exactly 1 (deadline exactly covered)",
     remainingMinutes: 240,
     availableMinutes: 240,
     expectedPressure: 1,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     name: "keeps a pressure of exactly 0.5 (twice the available time)",
     remainingMinutes: 180,
     availableMinutes: 360,
     expectedPressure: 0.5,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     name: "returns a fractional pressure below the thresholds",
     remainingMinutes: 1,
     availableMinutes: 3,
     expectedPressure: 1 / 3,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
   },
   {
     name: "uses a custom maxPressure for the cap",
     remainingMinutes: 100,
     availableMinutes: 10,
     expectedPressure: 3,
-    expectedInfeasible: false,
+    expectedNoCapacity: false,
     config: createEngineConfig({ maxPressure: 3 }),
   },
   {
@@ -113,7 +113,7 @@ const PRESSURE_CASES: readonly PressureCase[] = [
     remainingMinutes: 60,
     availableMinutes: 0,
     expectedPressure: 3,
-    expectedInfeasible: true,
+    expectedNoCapacity: true,
     config: createEngineConfig({ maxPressure: 3 }),
   },
 ];
@@ -231,14 +231,14 @@ function captureError(run: () => unknown): Error {
 describe("calculatePressure", () => {
   it.each(PRESSURE_CASES)(
     "$name",
-    ({ remainingMinutes, availableMinutes, expectedPressure, expectedInfeasible, config }) => {
+    ({ remainingMinutes, availableMinutes, expectedPressure, expectedNoCapacity, config }) => {
       const result =
         config === undefined
           ? calculatePressure(remainingMinutes, availableMinutes)
           : calculatePressure(remainingMinutes, availableMinutes, config);
 
       expect(result.pressure).toBeCloseTo(expectedPressure, 12);
-      expect(result.infeasible).toBe(expectedInfeasible);
+      expect(result.noCapacity).toBe(expectedNoCapacity);
     },
   );
 
@@ -268,7 +268,7 @@ describe("calculatePressure validation", () => {
   });
 
   it("accepts zero for both arguments", () => {
-    expect(calculatePressure(0, 0)).toEqual({ pressure: 0, infeasible: false });
+    expect(calculatePressure(0, 0)).toEqual({ pressure: 0, noCapacity: false });
   });
 });
 

@@ -27,7 +27,7 @@ Options considered:
    days can be more urgent than a small task due tomorrow, and earliest-due
    ordering cannot express that.
 3. **Effort-only ordering (shortest remaining first).** It favours quick wins,
-   but it can postpone large tasks until they become infeasible and says nothing
+   but it can postpone large tasks until they run out of time and says nothing
    about the time available before each deadline.
 4. **Pressure: remaining minutes divided by available minutes.** It uses the
    deadline, the remaining effort and the weekly capacity together, has a
@@ -48,9 +48,9 @@ pressure = remainingMinutes / availableMinutes
 
 with three explicit rules:
 
-- no minutes remaining -> pressure `0` and `infeasible = false`;
+- no minutes remaining -> pressure `0` and `noCapacity = false`;
 - minutes remaining and no available capacity -> pressure `maxPressure`
-  (default `10`) and `infeasible = true`;
+  (default `10`) and `noCapacity = true`;
 - otherwise the ratio, capped at `maxPressure`.
 
 The tier comes from overdue status and pressure thresholds, and the score is
@@ -85,7 +85,7 @@ The full formula, the explanation codes and worked examples are in
   the UI can explain the difference.
 - Capping at `maxPressure` saturates very overloaded tasks. Tasks with the same
   importance beyond the cap tie on score and fall through to `dueAt` and `id`.
-  The `infeasible` flag and `NO_TIME_LEFT` reason distinguish zero capacity from
+  The `noCapacity` flag and `NO_TIME_LEFT` reason distinguish zero capacity from
   a merely capped ratio.
 - The metric assumes remaining work can be split and done on any available day.
   It does not model dependencies, minimum blocks or a day-by-day schedule; the

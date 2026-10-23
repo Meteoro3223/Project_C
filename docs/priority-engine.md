@@ -74,7 +74,7 @@ Each `RankedTask` contains:
 | `rank`             | `number`                                             | 1-based position after sorting.                                                          |
 | `tier`             | `"OVERDUE" \| "CRITICAL" \| "AT_RISK" \| "ON_TRACK"` | Urgency class; tier dominates the score in the ordering.                                 |
 | `pressure`         | `number`                                             | Remaining minutes divided by available minutes, capped at `maxPressure`.                 |
-| `infeasible`       | `boolean`                                            | `true` only when minutes remain and there is no available capacity.                      |
+| `noCapacity`       | `boolean`                                            | `true` only when minutes remain and there is no available capacity.                      |
 | `importanceWeight` | `number`                                             | Weight applied to pressure for this task's importance.                                   |
 | `score`            | `number`                                             | `pressure * importanceWeight`, reported unrounded.                                       |
 | `remainingMinutes` | `number`                                             | Echo of the input.                                                                       |
@@ -122,13 +122,13 @@ Rules:
 
 Pressure compares the work left with the time available:
 
-| Condition                                           | `pressure`                                | `infeasible` |
+| Condition                                           | `pressure`                                | `noCapacity` |
 | --------------------------------------------------- | ----------------------------------------- | ------------ |
 | `remainingMinutes === 0`                            | `0`                                       | `false`      |
 | `remainingMinutes > 0` and `availableMinutes === 0` | `maxPressure` (default `10`)              | `true`       |
 | otherwise                                           | `min(remaining / available, maxPressure)` | `false`      |
 
-The cap keeps pressure finite and serializable. `infeasible` is **not** the same
+The cap keeps pressure finite and serializable. `noCapacity` is **not** the same
 as `pressure >= 1`: see [Limitations](#limitations).
 
 ### 4. Classify the tier
@@ -183,13 +183,13 @@ and independent of the order of the input array.
 
 `reasons` contains every code that applies, in this display order:
 
-| Condition                                          | Code              |
-| -------------------------------------------------- | ----------------- |
-| Tier is `OVERDUE`                                  | `OVERDUE`         |
-| `infeasible` is `true`                             | `NO_TIME_LEFT`    |
-| Not infeasible and tier is `AT_RISK` or `CRITICAL` | `TIGHT_SCHEDULE`  |
-| Importance is `HIGH`                               | `HIGH_IMPORTANCE` |
-| Tier is `ON_TRACK`                                 | `COMFORTABLE`     |
+| Condition                                                   | Code              |
+| ----------------------------------------------------------- | ----------------- |
+| Tier is `OVERDUE`                                           | `OVERDUE`         |
+| `noCapacity` is `true`                                      | `NO_TIME_LEFT`    |
+| `noCapacity` is `false` and tier is `AT_RISK` or `CRITICAL` | `TIGHT_SCHEDULE`  |
+| Importance is `HIGH`                                        | `HIGH_IMPORTANCE` |
+| Tier is `ON_TRACK`                                          | `COMFORTABLE`     |
 
 A task can carry several codes. For example, an overdue high-importance task
 with minutes left gets `OVERDUE`, `NO_TIME_LEFT` and `HIGH_IMPORTANCE`. A
@@ -264,7 +264,7 @@ effort is large relative to the time available.
 
 ### S3: overdue tasks
 
-| Task | Due (local)       | `daysUntilDue` | `availableMinutes` | `remainingMinutes` | Importance (weight) | Pressure      | Tier      | `infeasible` | Score | Reasons                                      |
+| Task | Due (local)       | `daysUntilDue` | `availableMinutes` | `remainingMinutes` | Importance (weight) | Pressure      | Tier      | `noCapacity` | Score | Reasons                                      |
 | ---- | ----------------- | -------------- | ------------------ | ------------------ | ------------------- | ------------- | --------- | ------------ | ----- | -------------------------------------------- |
 | O1   | Fri 9 Oct, 18:00  | -3             | 0                  | 60                 | `LOW` (1)           | `10` (max)    | `OVERDUE` | `true`       | `10`  | `OVERDUE`, `NO_TIME_LEFT`                    |
 | O2   | Fri 9 Oct, 18:00  | -3             | 0                  | 300                | `HIGH` (2)          | `10` (max)    | `OVERDUE` | `true`       | `20`  | `OVERDUE`, `NO_TIME_LEFT`, `HIGH_IMPORTANCE` |
@@ -272,8 +272,8 @@ effort is large relative to the time available.
 | X    | Wed 14 Oct, 18:00 | 2              | 360                | 240                | `MEDIUM` (1.5)      | `2/3 ≈ 0.667` | `AT_RISK` | `false`      | `1.0` | `TIGHT_SCHEDULE`                             |
 
 - O1 and O2 are overdue and still need work, so they have zero available
-  minutes, pressure `maxPressure` and `infeasible = true`.
-- O3 is also overdue but has nothing left: pressure `0`, `infeasible = false`.
+  minutes, pressure `maxPressure` and `noCapacity = true`.
+- O3 is also overdue but has nothing left: pressure `0`, `noCapacity = false`.
   It is still `OVERDUE` because the deadline has passed.
 - All `OVERDUE` tasks come before X, even O3 with score `0` against X's score
   `1.0`. Within the overdue tier, score decides: O2 (`20`), O1 (`10`), O3 (`0`).
@@ -292,23 +292,24 @@ effort is large relative to the time available.
 - **The deadline's civil date is excluded.** Work is assumed to happen on the
   days before `dueAt`'s local date, not on the due date itself. A task due later
   today has zero available minutes, and a task due tomorrow counts only today.
-  A task whose deadline is later today is therefore `CRITICAL` and `infeasible`
-  whenever minutes remain, even if there are still usable hours before the
-  deadline; if the deadline has already passed today, it is `OVERDUE` and
-  `infeasible` instead. This is conservative for deadlines late in the day. See
-  ADR-0006.
+  A task whose deadline is later today is therefore `CRITICAL` with
+  `noCapacity = true` whenever minutes remain, even if there are still usable
+  hours before the deadline; if the deadline has already passed today, it is
+  `OVERDUE` with `noCapacity = true` instead. This is conservative for deadlines
+  late in the day. See ADR-0006.
 
-- **`infeasible` means zero capacity, not `pressure >= 1`.** `infeasible` is
+- **`noCapacity` means zero capacity, not `pressure >= 1`.** `noCapacity` is
   `true` only when `remainingMinutes > 0` and `availableMinutes === 0`. The flag
   is not a general feasibility verdict. With the default thresholds, a
   non-overdue task with pressure at or above `1` is `CRITICAL`, and pressure
-  above `1` means the task cannot be
-  finished with the configured availability even though `infeasible = false`:
-  `240` remaining of `240` available gives pressure `1` and
-  `infeasible = false`; `3000` remaining of `180` available is capped at
-  `maxPressure` and also has `infeasible = false`. A pressure equal to
-  `maxPressure` can therefore come either from the cap or from zero capacity;
-  only the latter sets `infeasible` and adds `NO_TIME_LEFT`.
+  above `1` means the task cannot be finished with the configured availability
+  even though `noCapacity = false`: `240` remaining of `240` available gives
+  pressure `1` and `noCapacity = false`; `3000` remaining of `180` available is
+  capped at `maxPressure` and also has `noCapacity = false`. In short,
+  `noCapacity` means zero available minutes with work remaining, while pressure
+  above `1` signals an overload even when `noCapacity` is `false`. A pressure
+  equal to `maxPressure` can therefore come either from the cap or from zero
+  capacity; only the latter sets `noCapacity` and adds `NO_TIME_LEFT`.
 
 - **Scores that differ by less than `1e-9` count as tied for ordering.** The
   comparator rounds each score to 9 decimal places before comparing, so

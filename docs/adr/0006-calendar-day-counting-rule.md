@@ -61,10 +61,10 @@ Thursday counts Monday, Tuesday and Wednesday (`540` minutes).
   v1 because there is no within-day schedule to subtract from.
 - Excluding the deadline's civil date is conservative for deadlines late in the
   day. A task whose deadline is later today has `0` available minutes, so if
-  minutes remain it is `CRITICAL` and `infeasible`, even when there are still
-  usable hours before 18:00. If the deadline has already passed today, the task
-  is `OVERDUE` instead, and still `infeasible` when minutes remain. The
-  `NO_TIME_LEFT` reason explains the feasibility side to the user.
+  minutes remain it is `CRITICAL` with `noCapacity = true`, even when there are
+  still usable hours before 18:00. If the deadline has already passed today, the
+  task is `OVERDUE` instead, and still has `noCapacity = true` when minutes
+  remain. The `NO_TIME_LEFT` reason explains the no-capacity state to the user.
 - A task due tomorrow counts only today; a task due in two days counts today and
   tomorrow. This matches the example in PLAN section 6.
 - DST transitions do not create 23- or 25-hour "days"; each civil date counts
@@ -75,7 +75,7 @@ Thursday counts Monday, Tuesday and Wednesday (`540` minutes).
   this rule must be revisited together with `availableMinutes`, its tests and
   this ADR. Changing it now would change every pressure, tier and ranking.
 - Overdue tasks get `0` available minutes by construction. With minutes still
-  remaining, pressure becomes `maxPressure` and `infeasible` becomes `true`; with
+  remaining, pressure becomes `maxPressure` and `noCapacity` becomes `true`; with
   nothing remaining, pressure is `0` and the task is still `OVERDUE` because the
   instant comparison in the tier rule is independent of `availableMinutes`.
 - `daysUntilDue` uses the same civil-date difference. It can be `0` for a

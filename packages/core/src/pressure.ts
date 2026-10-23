@@ -5,12 +5,12 @@ import type { Tier } from "./types.js";
 /**
  * Pressure and feasibility for a single task (PLAN section 6, step 3).
  *
- * `infeasible` is `true` only when no minutes are available and minutes remain;
- * a pressure that was merely capped at `maxPressure` is still feasible.
+ * `noCapacity` is `true` only when no minutes are available and minutes remain;
+ * a pressure that was merely capped at `maxPressure` still has capacity.
  */
 export interface PressureResult {
   readonly pressure: number;
-  readonly infeasible: boolean;
+  readonly noCapacity: boolean;
 }
 
 /**
@@ -19,7 +19,7 @@ export interface PressureResult {
  *
  * Rules, in order:
  * - no minutes remaining -> pressure 0, feasible (even with no availability);
- * - no availability and minutes remaining -> `maxPressure`, infeasible;
+ * - no availability and minutes remaining -> `maxPressure`, `noCapacity` true;
  * - otherwise the ratio, capped at `maxPressure`.
  *
  * Pure and deterministic. Throws a `RangeError` naming the argument when either
@@ -34,16 +34,16 @@ export function calculatePressure(
   assertNonNegativeInteger("availableMinutes", availableMinutes);
 
   if (remainingMinutes === 0) {
-    return { pressure: 0, infeasible: false };
+    return { pressure: 0, noCapacity: false };
   }
 
   if (availableMinutes === 0) {
-    return { pressure: config.maxPressure, infeasible: true };
+    return { pressure: config.maxPressure, noCapacity: true };
   }
 
   return {
     pressure: Math.min(remainingMinutes / availableMinutes, config.maxPressure),
-    infeasible: false,
+    noCapacity: false,
   };
 }
 

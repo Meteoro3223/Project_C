@@ -261,7 +261,7 @@ describe("rankTasks breakdown", () => {
         rank: 1,
         tier: "AT_RISK",
         pressure: 0.5,
-        infeasible: false,
+        noCapacity: false,
         importanceWeight: 2,
         score: 1,
         remainingMinutes: 270,
@@ -308,7 +308,7 @@ const REASON_CASES: readonly ReasonCase[] = [
     expectedReasons: ["TIGHT_SCHEDULE"],
   },
   {
-    name: "critical and infeasible: NO_TIME_LEFT instead of TIGHT_SCHEDULE",
+    name: "critical with no capacity: NO_TIME_LEFT instead of TIGHT_SCHEDULE",
     dueAt: "2026-10-12T16:00:00Z",
     importance: "LOW",
     remainingMinutes: 30,

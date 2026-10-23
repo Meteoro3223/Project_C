@@ -75,7 +75,7 @@ function scoreTask(
   config: EngineConfig,
 ): Candidate {
   const available = availableMinutes(availability, now, task.dueAt);
-  const { pressure, infeasible } = calculatePressure(task.remainingMinutes, available, config);
+  const { pressure, noCapacity } = calculatePressure(task.remainingMinutes, available, config);
   // Instant comparison: a deadline later today is not overdue, just out of time.
   const overdue = task.dueAt.getTime() < now.getTime();
   const tier = classifyTier(pressure, overdue, config);
@@ -90,13 +90,13 @@ function scoreTask(
       taskId: task.id,
       tier,
       pressure,
-      infeasible,
+      noCapacity,
       importanceWeight,
       score,
       remainingMinutes: task.remainingMinutes,
       availableMinutes: available,
       daysUntilDue,
-      reasons: reasonsFor(task.importance, tier, infeasible),
+      reasons: reasonsFor(task.importance, tier, noCapacity),
     },
   };
 }
@@ -108,17 +108,17 @@ function scoreTask(
 function reasonsFor(
   importance: RankableTask["importance"],
   tier: Tier,
-  infeasible: boolean,
+  noCapacity: boolean,
 ): readonly ReasonCode[] {
   const reasons: ReasonCode[] = [];
 
   if (tier === "OVERDUE") {
     reasons.push("OVERDUE");
   }
-  if (infeasible) {
+  if (noCapacity) {
     reasons.push("NO_TIME_LEFT");
   }
-  if (!infeasible && (tier === "AT_RISK" || tier === "CRITICAL")) {
+  if (!noCapacity && (tier === "AT_RISK" || tier === "CRITICAL")) {
     reasons.push("TIGHT_SCHEDULE");
   }
   if (importance === "HIGH") {
