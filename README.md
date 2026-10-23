@@ -55,3 +55,9 @@ ignores in `.prettierignore`):
 pnpm format        # rewrite files in place
 pnpm format:check  # verify without writing (runs as part of pnpm check)
 ```
+
+## Docs
+
+- [Priority engine](docs/priority-engine.md) — pressure, tiers, ordering, defaults and worked examples.
+- [ADR-0005: Pressure as the priority metric](docs/adr/0005-pressure-as-priority-metric.md)
+- [ADR-0006: Calendar-day counting rule](docs/adr/0006-calendar-day-counting-rule.md)
