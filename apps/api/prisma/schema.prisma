@@ -1,7 +1,5 @@
 // Prisma schema for the Proyecto_C API.
-// P0-T4: datasource + generator only, so `GET /api/v1/health` can probe
-// the database. Domain models (Workspace, Course, Task, Availability)
-// arrive in P2-T1 with the first migration.
+// Domain models and the initial migration arrive in P2-T1.
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,4 +7,87 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model Workspace {
+  id         String   @id @default(uuid())
+  tokenHash  String   @unique
+  timezone   String   @default("Europe/Madrid")
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @db.Timestamptz(3)
+
+  courses      Course[]
+  tasks        Task[]
+  availability Availability[]
+}
+
+model Course {
+  id          String    @id @default(uuid())
+  workspaceId String
+  name        String
+  code        String?
+  color       String
+  archivedAt  DateTime? @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@index([workspaceId])
+}
+
+model Task {
+  id               String     @id @default(uuid())
+  workspaceId      String
+  courseId         String?
+  title            String
+  description      String?
+  type             TaskType
+  dueAt            DateTime   @db.Timestamptz(3)
+  importance       Importance
+  /// CHECK `task_estimated_minutes_nonneg`: estimatedMinutes >= 0.
+  estimatedMinutes Int
+  /// CHECK `task_remaining_minutes_nonneg`: remainingMinutes >= 0.
+  remainingMinutes Int
+  status           TaskStatus
+  completedAt      DateTime?  @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  course    Course?   @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, dueAt])
+  @@index([workspaceId, status])
+}
+
+model Availability {
+  id          String @id @default(uuid())
+  workspaceId String
+  /// CHECK `availability_weekday_range`: weekday BETWEEN 1 AND 7.
+  weekday     Int
+  /// CHECK `availability_minutes_range`: minutes BETWEEN 0 AND 1440.
+  minutes     Int
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, weekday])
+}
+
+enum TaskType {
+  ASSIGNMENT
+  PROJECT
+  EXAM
+  STUDY
+  OTHER
+}
+
+enum Importance {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
 }
