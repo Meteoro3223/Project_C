@@ -294,7 +294,7 @@ Tamaño relativo: S, M, L. Cada fase termina con algo ejecutable. **Las fases 0 
 
 > El aislamiento por workspace se implementa **desde el primer endpoint**, no se añade después.
 
-- [ ] **P2-T1** Esquema Prisma y migración (Workspace, Course, Task, Availability); `docs/data-model.md`.
+- [x] **P2-T1** Esquema Prisma y migración (Workspace, Course, Task, Availability); `docs/data-model.md`.
 - [ ] **P2-T2** Middleware de sesión de workspace (cookie, hash, `req.workspaceId`) y capa de repositorios con `workspaceId` obligatorio. Tests de aislamiento entre workspaces.
 - [ ] **P2-T3** API de asignaturas (CRUD y archivado) con validación Zod y formato de error común.
 - [ ] **P2-T4** API de tareas: CRUD, filtros, orden y reglas de transición de estado (completar pone `remainingMinutes = 0` y `completedAt`).

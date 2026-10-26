@@ -15,10 +15,11 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && pnpm -r --if-present run typecheck",
-    "test": "vitest run",
+    "test": "pnpm db:test:prepare && vitest run",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "db:up": "docker compose up -d db",
     "db:migrate": "pnpm --filter @proyecto-c/api run db:migrate",
+    "db:test:prepare": "pnpm --filter @proyecto-c/api run db:test:prepare",
     "db:seed": "node -e \"console.error('Seed is not configured yet (P3-T1): nothing to seed.'); process.exit(1)\""
   },
   "devDependencies": {

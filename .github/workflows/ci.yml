@@ -52,6 +52,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Prepare test database
+        run: pnpm db:test:prepare
+
       - name: Test
         run: pnpm test
 
