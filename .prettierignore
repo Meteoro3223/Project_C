@@ -3,5 +3,6 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+.review/
 pnpm-lock.yaml
 vite.config.*.timestamp-*

@@ -56,6 +56,12 @@ pnpm format        # rewrite files in place
 pnpm format:check  # verify without writing (runs as part of pnpm check)
 ```
 
+## Review workflow
+
+After implementing a task, write `.review/report.md` and `.review/mutations.json`, then run
+`pnpm mutate .review/mutations.json`. Run `pnpm check` and finish with `pnpm review:packet`, which
+prints and copies a ready-to-paste review packet. See `AGENTS.md` → "Review protocol".
+
 ## Docs
 
 - [Priority engine](docs/priority-engine.md) — pressure, tiers, ordering, defaults and worked examples.

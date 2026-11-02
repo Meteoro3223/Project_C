@@ -17,6 +17,8 @@
     "typecheck": "tsc --noEmit && pnpm -r --if-present run typecheck",
     "test": "pnpm db:test:prepare && vitest run",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "mutate": "tsx tools/review/mutate.ts",
+    "review:packet": "tsx tools/review/packet.ts",
     "db:up": "docker compose up -d db",
     "db:migrate": "pnpm --filter @proyecto-c/api run db:migrate",
     "db:test:prepare": "pnpm --filter @proyecto-c/api run db:test:prepare",
@@ -31,6 +33,7 @@
     "prettier": "^3.9.10",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.2",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "zod": "^4.6.7"
   }
 }
