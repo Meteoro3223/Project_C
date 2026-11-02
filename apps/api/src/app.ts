@@ -2,7 +2,14 @@ import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { checkDatabase as defaultCheckDatabase, prisma as defaultPrisma } from "./db.js";
-import { ApiError, apiErrorBody } from "./errors.js";
+import {
+  ApiError,
+  apiErrorBody,
+  getBodyParserErrorType,
+  InvalidJsonError,
+  PayloadTooLargeError,
+} from "./errors.js";
+import { CACHE_CONTROL_HEADER, NO_STORE_CACHE_CONTROL } from "./middleware/no-store.js";
 import { WorkspaceRepository } from "./repositories/workspace.repository.js";
 import { createApiRouter } from "./routes/index.js";
 import type { ProtectedRoute } from "./routes/index.js";
@@ -21,6 +28,24 @@ export interface CreateAppOptions {
   clock?: () => Date;
   // Test seam for a probe route. Production resources are added here too.
   protectedRouters?: readonly ProtectedRoute[];
+}
+
+// Translates body-parser failures into typed API errors. Any other error is
+// unexpected and stays opaque to the client.
+function toApiError(error: unknown): ApiError | null {
+  if (error instanceof ApiError) {
+    return error;
+  }
+
+  const parserType = getBodyParserErrorType(error);
+  if (parserType === "entity.parse.failed") {
+    return new InvalidJsonError();
+  }
+  if (parserType === "entity.too.large") {
+    return new PayloadTooLargeError();
+  }
+
+  return null;
 }
 
 // Application factory (no `listen()` here) so Supertest can use it.
@@ -53,12 +78,21 @@ export function createApp(options: CreateAppOptions = {}): Express {
 
   // Central error handler. Typed errors keep their status/code; anything else
   // is logged server-side and returned as an opaque 500.
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof ApiError) {
-      res.status(err.statusCode).json(apiErrorBody(err));
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    // `express.json` runs before the API router, so its failures never reach
+    // the router-level Cache-Control middleware. Cover them here.
+    if (req.originalUrl.startsWith("/api/v1")) {
+      res.setHeader(CACHE_CONTROL_HEADER, NO_STORE_CACHE_CONTROL);
+    }
+
+    const apiError = toApiError(err);
+    if (apiError !== null) {
+      res.status(apiError.statusCode).json(apiErrorBody(apiError));
       return;
     }
 
+    // Never log the parser's message or request body: only opaque failures
+    // reach this branch, and only their message is logged.
     console.error("Unhandled API error:", err instanceof Error ? err.message : err);
     res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "Internal server error" } });
   });

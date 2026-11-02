@@ -69,6 +69,9 @@ probeRouter.get("/", (req, res) => {
 probeRouter.post("/", (req, res) => {
   res.json({ workspaceId: getWorkspaceId(req) });
 });
+probeRouter.get("/boom", () => {
+  throw new Error("probe boom");
+});
 
 function createProbeApp(
   overrides: { secureCookies?: boolean; clock?: () => Date } = {},
@@ -192,6 +195,29 @@ describe("POST /api/v1/workspace/session", () => {
 
     expect(firstCookie).not.toBe(secondCookie);
     expect(await testPrisma.workspace.count()).toBe(2);
+  });
+
+  it("creates a new workspace and a new cookie for a well-formed but unknown secret", async () => {
+    const app = createApp({ prisma: testPrisma, clock: () => NOW });
+    const presented = "a".repeat(43);
+
+    const res = await request(app)
+      .post("/api/v1/workspace/session")
+      .set("Cookie", `${SESSION_COOKIE_NAME}=${presented}`)
+      .expect(200);
+
+    const issued = findSessionCookie(res);
+    if (issued === undefined) {
+      throw new Error("Expected the unknown secret to be replaced by a new cookie");
+    }
+
+    expect(issued).not.toBe(presented);
+    expect(findSessionCookieHeader(res)).toContain(`${SESSION_COOKIE_NAME}=${issued}`);
+    expect(await testPrisma.workspace.count()).toBe(1);
+
+    const stored = await testPrisma.workspace.findFirstOrThrow();
+    expect(stored.tokenHash).toBe(hashSecret(issued));
+    expect(stored.tokenHash).not.toBe(hashSecret(presented));
   });
 });
 
@@ -401,5 +427,279 @@ describe("session cookie attributes", () => {
     // `Path=/api`, which is a different cookie scope.
     expect(attributes).toContain("Path=/");
     expect(attributes).toContain(`Max-Age=${SESSION_MAX_AGE_SECONDS}`);
+  });
+});
+
+describe("lastSeenAt isolation between workspaces", () => {
+  it("touches only the authenticated workspace, in both directions", async () => {
+    let now = new Date(NOW);
+    const app = createProbeApp({ clock: () => now });
+    const a = await createSession(app);
+    const b = await createSession(app);
+
+    now = new Date(NOW.getTime() + LAST_SEEN_TOUCH_INTERVAL_MS + 1);
+
+    await request(app)
+      .get("/api/v1/probe")
+      .set("Cookie", `${SESSION_COOKIE_NAME}=${a.cookie}`)
+      .expect(200);
+
+    const afterATouch = await testPrisma.workspace.findUniqueOrThrow({
+      where: { id: a.workspaceId },
+    });
+    const bAfterATouch = await testPrisma.workspace.findUniqueOrThrow({
+      where: { id: b.workspaceId },
+    });
+    expect(afterATouch.lastSeenAt.toISOString()).toBe(now.toISOString());
+    expect(bAfterATouch.lastSeenAt.toISOString()).toBe(NOW.toISOString());
+
+    now = new Date(now.getTime() + LAST_SEEN_TOUCH_INTERVAL_MS + 1);
+
+    await request(app)
+      .get("/api/v1/probe")
+      .set("Cookie", `${SESSION_COOKIE_NAME}=${b.cookie}`)
+      .expect(200);
+
+    const aAfterBTouch = await testPrisma.workspace.findUniqueOrThrow({
+      where: { id: a.workspaceId },
+    });
+    const bAfterBTouch = await testPrisma.workspace.findUniqueOrThrow({
+      where: { id: b.workspaceId },
+    });
+    expect(aAfterBTouch.lastSeenAt.toISOString()).toBe(afterATouch.lastSeenAt.toISOString());
+    expect(bAfterBTouch.lastSeenAt.toISOString()).toBe(now.toISOString());
+  });
+});
+
+describe("central error handler", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("maps malformed JSON to 400 INVALID_JSON without leaking the parser message", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {
+      // Parser failures are expected; they must not be logged.
+    });
+    const app = createApp({ prisma: testPrisma, clock: () => NOW });
+
+    const res = await request(app)
+      .post("/api/v1/workspace/session")
+      .set("Content-Type", "application/json")
+      .send('{"workspace":')
+      .expect(400);
+
+    expect(res.body).toEqual({
+      error: { code: "INVALID_JSON", message: "Malformed JSON body" },
+    });
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expect(log).not.toHaveBeenCalled();
+    expect(await testPrisma.workspace.count()).toBe(0);
+  });
+
+  it("maps a body over 100kb to 413 PAYLOAD_TOO_LARGE", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {
+      // Parser failures are expected; they must not be logged.
+    });
+    const app = createApp({ prisma: testPrisma, clock: () => NOW });
+
+    const res = await request(app)
+      .post("/api/v1/workspace/session")
+      .set("Content-Type", "application/json")
+      .send({ padding: "x".repeat(101 * 1024) })
+      .expect(413);
+
+    expect(res.body).toEqual({
+      error: { code: "PAYLOAD_TOO_LARGE", message: "Payload too large" },
+    });
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expect(log).not.toHaveBeenCalled();
+    expect(await testPrisma.workspace.count()).toBe(0);
+  });
+
+  it("still returns an opaque 500 for an unexpected plain Error", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {
+      // Asserted below; silenced so the test output stays clean.
+    });
+    const app = createProbeApp();
+    const session = await createSession(app);
+
+    const res = await request(app)
+      .get("/api/v1/probe/boom")
+      .set("Cookie", `${SESSION_COOKIE_NAME}=${session.cookie}`)
+      .expect(500);
+
+    expect(res.body).toEqual({
+      error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+    });
+    expect(res.text).not.toContain("probe boom");
+    expect(log).toHaveBeenCalledWith("Unhandled API error:", "probe boom");
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+});
+
+describe("Cache-Control", () => {
+  it("sets no-store on protected routes, the session endpoint and 401 responses", async () => {
+    const app = createProbeApp();
+    const session = await createSession(app);
+
+    const protectedRes = await request(app)
+      .get("/api/v1/probe")
+      .set("Cookie", `${SESSION_COOKIE_NAME}=${session.cookie}`)
+      .expect(200);
+    expect(protectedRes.headers["cache-control"]).toBe("no-store");
+
+    const sessionRes = await request(app).post("/api/v1/workspace/session").expect(200);
+    expect(sessionRes.headers["cache-control"]).toBe("no-store");
+
+    const unauthorized = await request(app).get("/api/v1/probe").expect(401);
+    expect(unauthorized.headers["cache-control"]).toBe("no-store");
+  });
+});
+
+// Express 4 keeps its route table on the router stack. The shapes below are
+// typed structurally through `unknown`, so no Express internals leak `any` into
+// the test.
+interface ExpressLayer {
+  name: string;
+  regexp: RegExp;
+  route?: { path: string; methods: Record<string, boolean> };
+  handle: { stack?: unknown };
+}
+
+function isExpressLayer(value: unknown): value is ExpressLayer {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as { name?: unknown; regexp?: unknown; handle?: unknown };
+  return (
+    typeof candidate.name === "string" &&
+    candidate.regexp instanceof RegExp &&
+    typeof candidate.handle === "function"
+  );
+}
+
+function readStack(target: unknown): ExpressLayer[] {
+  const appRouter = (target as { _router?: { stack?: unknown } })._router;
+  const routerStack = (target as { stack?: unknown }).stack;
+  const raw = appRouter?.stack ?? routerStack;
+
+  if (!Array.isArray(raw)) {
+    throw new Error("Expected an Express router stack");
+  }
+
+  return raw.filter((entry: unknown) => isExpressLayer(entry));
+}
+
+function nestedStack(layer: ExpressLayer): ExpressLayer[] | null {
+  const stack = layer.handle.stack;
+  if (!Array.isArray(stack)) {
+    return null;
+  }
+  return stack.filter((entry: unknown) => isExpressLayer(entry));
+}
+
+function findApiMount(app: ReturnType<typeof createApp>): ExpressLayer {
+  const apiMount = readStack(app).find(
+    (layer) => nestedStack(layer) !== null && layer.regexp.test("/api/v1"),
+  );
+  if (apiMount === undefined) {
+    throw new Error("Expected createApp() to mount the API router at /api/v1");
+  }
+  return apiMount;
+}
+
+// `api.use(path, requireWorkspace, router)` pushes one layer per handler. A
+// mount is guarded when a non-router middleware layer shares its path.
+function isGuardedByMiddleware(apiStack: ExpressLayer[], mount: ExpressLayer): boolean {
+  const index = apiStack.indexOf(mount);
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = apiStack[cursor];
+    if (candidate === undefined || candidate.regexp.source !== mount.regexp.source) {
+      break;
+    }
+    if (nestedStack(candidate) === null) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function callWithoutCookie(
+  app: ReturnType<typeof createApp>,
+  method: string,
+  url: string,
+): Promise<{ status: number; body: unknown }> {
+  switch (method) {
+    case "get":
+      return request(app).get(url);
+    case "post":
+      return request(app).post(url);
+    default:
+      throw new Error(`The contract test cannot call ${method} ${url}`);
+  }
+}
+
+const PUBLIC_MOUNTS = ["/health", "/workspace"] as const;
+
+describe("route protection contract", () => {
+  it("keeps every router mount outside the public allowlist behind requireWorkspace", () => {
+    const app = createProbeApp();
+    const appStack = readStack(app);
+
+    // No route may bypass the API router (and therefore the middleware).
+    expect(appStack.filter((layer) => layer.route !== undefined)).toEqual([]);
+    expect(appStack.filter((layer) => nestedStack(layer) !== null)).toHaveLength(1);
+
+    const apiStack = readStack(findApiMount(app).handle);
+
+    // Direct routes on the API router would skip the requireWorkspace mount.
+    expect(apiStack.filter((layer) => layer.route !== undefined)).toEqual([]);
+
+    const mounts = apiStack.filter((layer) => nestedStack(layer) !== null);
+    for (const mount of mounts) {
+      const isPublic = PUBLIC_MOUNTS.some((path) => mount.regexp.test(path));
+      expect({
+        source: mount.regexp.source,
+        guarded: isGuardedByMiddleware(apiStack, mount),
+      }).toEqual({ source: mount.regexp.source, guarded: !isPublic });
+    }
+
+    expect(mounts.filter((mount) => !isGuardedByMiddleware(apiStack, mount))).toHaveLength(
+      PUBLIC_MOUNTS.length,
+    );
+  });
+
+  it("returns 401 without a cookie for every route of every protected router", async () => {
+    const app = createProbeApp();
+    const apiStack = readStack(findApiMount(app).handle);
+    const probeMount = apiStack.find(
+      (layer) => nestedStack(layer) !== null && layer.regexp.test("/probe"),
+    );
+    const probeStack = probeMount === undefined ? null : nestedStack(probeMount);
+    if (probeStack === null) {
+      throw new Error("Expected the probe router to be mounted at /probe");
+    }
+
+    const routes = probeStack.filter((layer) => layer.route !== undefined);
+    expect(routes.length).toBeGreaterThan(0);
+
+    for (const layer of routes) {
+      const route = layer.route;
+      if (route === undefined) {
+        continue;
+      }
+
+      const url = `/api/v1/probe${route.path === "/" ? "" : route.path}`;
+      for (const method of Object.keys(route.methods)) {
+        const res = await callWithoutCookie(app, method, url);
+        expect({ method, url, status: res.status, body: res.body }).toEqual({
+          method,
+          url,
+          status: 401,
+          body: { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
+        });
+      }
+    }
   });
 });

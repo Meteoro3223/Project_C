@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { createRequireWorkspace } from "../middleware/require-workspace.js";
+import { noStore } from "../middleware/no-store.js";
 import { createHealthRouter } from "./health.js";
 import type { HealthCheckOptions } from "./health.js";
 import { createWorkspaceSessionRouter } from "./workspace-session.js";
@@ -21,6 +22,10 @@ export interface ApiRouterOptions {
 
 export function createApiRouter(options: ApiRouterOptions): Router {
   const api = Router();
+
+  // Applied to every response under /api/v1, including the 404 that falls
+  // through to the app-level handler.
+  api.use(noStore);
 
   // Public: health check and anonymous workspace bootstrap only.
   api.use("/health", createHealthRouter(options.health));
