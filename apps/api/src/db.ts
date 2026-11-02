@@ -10,8 +10,8 @@ if (process.env["NODE_ENV"] !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
-// Minimal probe used by `GET /api/v1/health`. Full repositories with
-// mandatory `workspaceId` filtering arrive in P2-T2.
+// Minimal probe used by `GET /api/v1/health`. Workspace-scoped data access
+// lives in `src/repositories/`, which all require an explicit `workspaceId`.
 export async function checkDatabase(): Promise<void> {
   await prisma.$queryRaw`SELECT 1`;
 }

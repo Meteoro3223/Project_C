@@ -66,13 +66,13 @@ erDiagram
 Anonymous workspace identified by a cookie secret. Only the secret hash is
 stored.
 
-| Column       | Type             | Null | Default             | Notes                             |
-| ------------ | ---------------- | ---- | ------------------- | --------------------------------- |
-| `id`         | `TEXT`           | no   | Prisma `uuid()`     | Primary key                       |
-| `tokenHash`  | `TEXT`           | no   | —                   | Unique; hash of the cookie secret |
-| `timezone`   | `TEXT`           | no   | `Europe/Madrid`     | IANA timezone; validated by Zod   |
-| `createdAt`  | `TIMESTAMPTZ(3)` | no   | `CURRENT_TIMESTAMP` | Creation instant                  |
-| `lastSeenAt` | `TIMESTAMPTZ(3)` | no   | `CURRENT_TIMESTAMP` | Updated by the API on activity    |
+| Column       | Type             | Null | Default             | Notes                                           |
+| ------------ | ---------------- | ---- | ------------------- | ----------------------------------------------- |
+| `id`         | `TEXT`           | no   | Prisma `uuid()`     | Primary key                                     |
+| `tokenHash`  | `TEXT`           | no   | —                   | Unique; SHA-256 hex digest of the cookie secret |
+| `timezone`   | `TEXT`           | no   | `Europe/Madrid`     | IANA timezone; validated by Zod                 |
+| `createdAt`  | `TIMESTAMPTZ(3)` | no   | `CURRENT_TIMESTAMP` | Creation instant                                |
+| `lastSeenAt` | `TIMESTAMPTZ(3)` | no   | `CURRENT_TIMESTAMP` | Updated at most once per hour on activity       |
 
 ### `Course`
 
