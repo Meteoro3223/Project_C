@@ -38,6 +38,8 @@ Defined in task `P0-T2`. If a script is missing, create it there rather than inv
 | `pnpm format` / `pnpm format:check`          | apply / verify Prettier formatting                         |
 | `pnpm lint` / `pnpm typecheck` / `pnpm test` | individual checks                                          |
 | `pnpm build`                                 | production build of all packages                           |
+| `pnpm mutate <spec.json>`                    | run mutation checks from a JSON spec                       |
+| `pnpm review:packet`                         | build and copy the review packet                           |
 | `pnpm db:up`                                 | start Postgres via Docker Compose                          |
 | `pnpm db:migrate` / `pnpm db:seed`           | Prisma migrations / demo seed                              |
 
@@ -104,6 +106,15 @@ Every row of user data belongs to a workspace. Isolation bugs are the worst bugs
 - `api`: Supertest against a **real Postgres test database**. Do not mock the database. Reset data between tests.
 - Every feature ships with tests. Every bug fix ships with a regression test.
 - Do not weaken or delete a failing test to make the build pass; fix the cause or ask.
+
+## Review protocol
+
+For every task, after implementing:
+
+1. Write `.review/report.md` with: files changed; an isolation audit (every Prisma call and where `workspaceId` applies) when the task touches data access; assumptions made; and the list of mutations you propose.
+2. Write the mutations as `.review/mutations.json` in the spec shape used by `tools/review/mutate.ts` and run `pnpm mutate .review/mutations.json`. Do not hand-edit source files to mutate.
+3. Run `pnpm check`. Do not commit; do not push.
+4. Finish with a short summary and the proposed Conventional Commit message. Never paste the full diff in the reply.
 
 ## Git
 

@@ -10,6 +10,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/build/**",
       "**/coverage/**",
+      "**/.review/**",
       "**/*.tsbuildinfo",
       "vite.config.*.timestamp-*",
     ],

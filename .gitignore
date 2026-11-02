@@ -34,3 +34,6 @@ vite.config.*.timestamp-*
 
 # Prisma
 prisma/migrations/dev/
+
+# Local review artifacts (mutation runs and agent reports)
+.review/
