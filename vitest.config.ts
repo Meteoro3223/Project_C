@@ -6,5 +6,8 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/dist/**", "**/build/**"],
     passWithNoTests: true,
     environment: "node",
+    // Integration tests share one Postgres test database and truncate it
+    // between tests, so test files must not run concurrently.
+    fileParallelism: false,
   },
 });

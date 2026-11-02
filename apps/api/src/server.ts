@@ -5,6 +5,7 @@ import { createApp } from "./app.js";
 // `.env` is already loaded by `env.ts` (or by `--env-file-if-exists` flags).
 const env = loadEnv();
 
-const app = createApp();
+// Composition root: the only place that reads NODE_ENV to decide cookie flags.
+const app = createApp({ secureCookies: process.env["NODE_ENV"] === "production" });
 
 app.listen(env.port);
