@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   applyExactlyOnce,
+  baselineVerdict,
   classifyRun,
   firstLines,
   formatZodError,
@@ -23,6 +24,7 @@ import {
   parseVitestResult,
   renderMutationReport,
   shouldRestoreBackup,
+  ZERO_TESTS_MESSAGE,
   type MutationSpec,
   type MutationTableRow,
 } from "./mutate-core";
@@ -49,6 +51,7 @@ interface CommandResult {
 
 interface TestRunResult extends CommandResult {
   failedTests: string[];
+  totalTests: number;
 }
 
 interface ActiveMutation {
@@ -535,7 +538,7 @@ async function runTests(spec: MutationSpec, timeoutMs: number): Promise<TestRunR
   }
 
   if (result.timedOut) {
-    return { ...result, output, failedTests: [] };
+    return { ...result, output, failedTests: [], totalTests: 0 };
   }
 
   if (!existsSync(vitestResultFile)) {
@@ -543,27 +546,29 @@ async function runTests(spec: MutationSpec, timeoutMs: number): Promise<TestRunR
       ...result,
       output: `vitest did not write ${vitestResultRelative}\n${output}`,
       failedTests: [],
+      totalTests: 0,
     };
   }
 
   const parsed = parseVitestResult(readFileSync(vitestResultFile, "utf8"));
   if (!parsed.ok) {
-    return { ...result, output: `${parsed.reason}\n${output}`, failedTests: [] };
+    return { ...result, output: `${parsed.reason}\n${output}`, failedTests: [], totalTests: 0 };
   }
 
-  const { failedTests, messages } = parsed.report;
+  const { failedTests, messages, totalTests } = parsed.report;
   if (failedTests.length === 0 && messages.length > 0) {
     output = `${messages.join("\n")}\n${output}`;
   }
-  return { ...result, output, failedTests };
+  return { ...result, output, failedTests, totalTests };
 }
 
 async function runBaseline(spec: MutationSpec, timeoutMs: number): Promise<boolean> {
   print(`Running the unmutated baseline (${spec.tests.join(", ")})...`);
   const result = await runTests(spec, timeoutMs);
+  const verdict = baselineVerdict(result);
 
-  if (result.exitCode === 0 && !result.timedOut) {
-    print("Baseline is green.");
+  if (verdict.green) {
+    print(`Baseline is green (${result.totalTests} test(s) executed).`);
     return true;
   }
 
@@ -571,7 +576,9 @@ async function runBaseline(spec: MutationSpec, timeoutMs: number): Promise<boole
   if (result.timedOut) {
     console.error(`- (timeout after ${Math.round(timeoutMs / 1_000)}s)`);
   }
-  if (result.failedTests.length > 0) {
+  if (verdict.zeroTests) {
+    console.error(`- ${ZERO_TESTS_MESSAGE}; the green result cannot be trusted`);
+  } else if (result.failedTests.length > 0) {
     for (const name of result.failedTests) {
       console.error(`- ${name}`);
     }
@@ -615,6 +622,7 @@ async function runMutation(
       exitCode: result.exitCode,
       output: result.output,
       failedTests: result.failedTests,
+      totalTests: result.totalTests,
       expectedKilledBy: expected,
       timedOut: result.timedOut,
     });

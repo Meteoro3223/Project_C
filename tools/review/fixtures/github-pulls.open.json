@@ -1,0 +1,8 @@
+[
+  {
+    "number": 42,
+    "state": "open",
+    "merged_at": null,
+    "title": "chore(tools): print the pull request diff URL"
+  }
+]

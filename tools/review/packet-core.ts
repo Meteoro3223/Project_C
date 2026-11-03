@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type CheckStatus = "pass" | "fail" | "skipped";
 
 export interface DiffBase {
@@ -5,12 +7,39 @@ export interface DiffBase {
   fallback: boolean;
 }
 
+export interface PushState {
+  pushed: boolean;
+  commands: string[];
+  reason: string | null;
+}
+
+export type PullRequestState = "open" | "merged" | "closed";
+
+export interface PullRequestInfo {
+  number: number;
+  state: PullRequestState;
+}
+
+export type PullLookupResult =
+  { kind: "found"; pull: PullRequestInfo } | { kind: "none" } | { kind: "error"; reason: string };
+
+export type ReviewOutcome =
+  | { kind: "pull"; diffUrl: string; pull: PullRequestInfo }
+  | { kind: "create"; createUrl: string }
+  | {
+      kind: "unavailable";
+      reason: string;
+      pushCommands: string[];
+      manualDiffUrl: string | null;
+    };
+
 export interface PacketInput {
   taskId: string | null;
   branch: string;
   head: string;
   date: string;
   diffBase: DiffBase;
+  originFetchFailed: boolean;
   checkStatus: CheckStatus;
   checkOutput: string;
   diffLabel: string;
@@ -19,12 +48,13 @@ export interface PacketInput {
   untracked: string[];
   mutations: string | null;
   report: string | null;
-  compareUrl: string | null;
-  urlUnavailableReason: string | null;
-  pushCommands: string[];
+  review: ReviewOutcome;
 }
 
-const MAX_PACKET_LINES = 200;
+export const MAX_PACKET_LINES = 200;
+export const AGENT_REPORT_MAX_LINES = 60;
+export const PACKET_FINAL_LINE =
+  "Paste this whole text, including the review URL on its own line, in the chat.";
 
 export function inferTaskId(branch: string): string | null {
   const match = /(?:^|[^a-z0-9])(p\d+-t\d+)(?=$|[^a-z0-9])/i.exec(branch);
@@ -56,19 +86,140 @@ export function parseGitHubRemote(remoteUrl: string): GitHubRepo | null {
   return { owner, repo };
 }
 
-function encodeBranch(branch: string): string {
+export function encodeBranch(branch: string): string {
   return branch
     .split("/")
     .map((part) => encodeURIComponent(part))
     .join("/");
 }
 
-export function buildCompareUrl(remoteUrl: string, branch: string): string | null {
+function compareCreateUrl(repo: GitHubRepo, branch: string): string {
+  return `https://github.com/${repo.owner}/${repo.repo}/compare/main...${encodeBranch(branch)}?expand=1`;
+}
+
+export function buildCompareCreateUrl(remoteUrl: string, branch: string): string | null {
   const repository = parseGitHubRemote(remoteUrl);
   if (repository === null) {
     return null;
   }
-  return `https://github.com/${repository.owner}/${repository.repo}/compare/main...${encodeBranch(branch)}.diff`;
+  return compareCreateUrl(repository, branch);
+}
+
+export function buildPullDiffUrl(repo: GitHubRepo, pullNumber: number): string {
+  return `https://github.com/${repo.owner}/${repo.repo}/pull/${pullNumber}.diff`;
+}
+
+export function buildPullRequestApiUrl(repo: GitHubRepo, branch: string): string {
+  const head = `${repo.owner}:${encodeBranch(branch)}`;
+  return `https://api.github.com/repos/${repo.owner}/${repo.repo}/pulls?head=${head}&state=all&per_page=1`;
+}
+
+function manualPullDiffUrl(repo: GitHubRepo): string {
+  return `https://github.com/${repo.owner}/${repo.repo}/pull/<N>.diff`;
+}
+
+const pullRequestSchema = z.object({
+  number: z.number().int().positive(),
+  state: z.string().min(1),
+  merged_at: z.string().nullable().optional(),
+});
+
+const pullRequestListSchema = z.array(pullRequestSchema);
+
+/**
+ * Validates the GitHub "list pull requests" payload. A merged PR is reported as
+ * "merged" even though GitHub keeps `state: "closed"` for it.
+ */
+export function parsePullRequests(payload: unknown): PullLookupResult {
+  const parsed = pullRequestListSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { kind: "error", reason: "unexpected GitHub API response" };
+  }
+
+  const first = parsed.data[0];
+  if (first === undefined) {
+    return { kind: "none" };
+  }
+
+  const merged = typeof first.merged_at === "string" && first.merged_at.length > 0;
+  const state: PullRequestState = merged ? "merged" : first.state === "open" ? "open" : "closed";
+  return { kind: "found", pull: { number: first.number, state } };
+}
+
+export function resolveReviewOutcome(
+  repo: GitHubRepo,
+  branch: string,
+  push: PushState,
+  lookup: PullLookupResult | null,
+): ReviewOutcome {
+  if (!push.pushed) {
+    return {
+      kind: "unavailable",
+      reason: push.reason ?? "the branch is not pushed to origin",
+      pushCommands: push.commands,
+      manualDiffUrl: null,
+    };
+  }
+
+  if (lookup === null) {
+    return {
+      kind: "unavailable",
+      reason: "the pull request lookup did not run",
+      pushCommands: [],
+      manualDiffUrl: manualPullDiffUrl(repo),
+    };
+  }
+
+  if (lookup.kind === "found") {
+    return {
+      kind: "pull",
+      diffUrl: buildPullDiffUrl(repo, lookup.pull.number),
+      pull: lookup.pull,
+    };
+  }
+  if (lookup.kind === "none") {
+    return { kind: "create", createUrl: compareCreateUrl(repo, branch) };
+  }
+  return {
+    kind: "unavailable",
+    reason: lookup.reason,
+    pushCommands: [],
+    manualDiffUrl: manualPullDiffUrl(repo),
+  };
+}
+
+export function renderReviewUrl(outcome: ReviewOutcome): string {
+  if (outcome.kind === "pull") {
+    return `${outcome.diffUrl}\n\nPR state: ${outcome.pull.state}`;
+  }
+
+  if (outcome.kind === "create") {
+    return [
+      "No pull request yet. Create it at:",
+      outcome.createUrl,
+      "",
+      "The .diff URL will exist once the PR is created; re-run `pnpm review:packet --skip-check`.",
+    ].join("\n");
+  }
+
+  const manual =
+    outcome.manualDiffUrl === null
+      ? ""
+      : `\n\nBuild the URL by hand as ${outcome.manualDiffUrl} once the PR exists.`;
+  const commands =
+    outcome.pushCommands.length > 0
+      ? `\n\n\`\`\`sh\n${outcome.pushCommands.join("\n")}\n\`\`\``
+      : "";
+  return `The review URL is not available yet: ${outcome.reason}.${manual}${commands}`;
+}
+
+export function buildDiffBaseLine(diffBase: DiffBase, originFetchFailed: boolean): string {
+  const base = diffBase.fallback
+    ? `- Diff base: ${diffBase.ref} (origin/main not found; falling back to ${diffBase.ref})`
+    : `- Diff base: ${diffBase.ref}`;
+  return originFetchFailed
+    ? `${base}\n- Origin fetch: could not fetch origin; diff base may be stale`
+    : base;
 }
 
 function normalizeLines(text: string): string[] {
@@ -109,7 +260,15 @@ export function lastLines(text: string, maxLines: number, label = "output"): str
   ].join("\n");
 }
 
-export function capPacket(packet: string, maxLines = MAX_PACKET_LINES): string {
+/**
+ * Caps the packet while always keeping the truncation note, the final line and
+ * any explicitly preserved line (the PR .diff URL).
+ */
+export function capPacket(
+  packet: string,
+  maxLines = MAX_PACKET_LINES,
+  preserve: readonly string[] = [],
+): string {
   if (!Number.isInteger(maxLines) || maxLines < 1) {
     throw new Error("maxLines must be a positive integer");
   }
@@ -120,17 +279,22 @@ export function capPacket(packet: string, maxLines = MAX_PACKET_LINES): string {
   }
 
   const tailCount = Math.max(1, Math.min(10, maxLines - 1));
-  const headCount = Math.max(0, Math.min(12, maxLines - tailCount - 1));
-  const middleCount = maxLines - headCount - tailCount - 1;
-  const head = lines.slice(0, headCount);
-  const middle = lines.slice(headCount, headCount + middleCount);
   const tail = lines.slice(-tailCount);
-  const omitted = lines.length - head.length - middle.length - tail.length;
+  const tailSet = new Set(tail);
+  const wanted = [...new Set(preserve.filter((line) => line.length > 0 && !tailSet.has(line)))];
+
+  const budget = maxLines - tail.length - 1;
+  const preservedToShow = wanted.slice(0, Math.max(0, budget - (budget > 1 ? 1 : 0)));
+  const headCount = Math.max(0, Math.min(12, budget - preservedToShow.length));
+  const head = lines.slice(0, headCount);
+  const headSet = new Set(head);
+  const keptPreserved = preservedToShow.filter((line) => !headSet.has(line));
+  const omitted = Math.max(0, lines.length - head.length - tail.length - keptPreserved.length);
 
   return [
     ...head,
-    ...middle,
     `[... packet truncated: ${omitted} line(s) omitted ...]`,
+    ...keptPreserved,
     ...tail,
   ].join("\n");
 }
@@ -141,9 +305,6 @@ function section(title: string, body: string): string {
 
 export function buildPacket(input: PacketInput): string {
   const task = input.taskId ?? "unknown (branch name has no task id)";
-  const diffBase = input.diffBase.fallback
-    ? `- Diff base: ${input.diffBase.ref} (origin/main not found; falling back to ${input.diffBase.ref})`
-    : `- Diff base: ${input.diffBase.ref}`;
   const header = [
     "# Review packet",
     "",
@@ -151,7 +312,7 @@ export function buildPacket(input: PacketInput): string {
     `- Branch: ${input.branch}`,
     `- HEAD: ${input.head}`,
     `- Date: ${input.date}`,
-    diffBase,
+    buildDiffBaseLine(input.diffBase, input.originFetchFailed),
   ].join("\n");
 
   let checkBody: string;
@@ -190,17 +351,8 @@ export function buildPacket(input: PacketInput): string {
       ? "agent report: missing"
       : input.report.trim().length === 0
         ? "(empty)"
-        : truncateLines(input.report, 35, "agent report");
-
-  let urlBody: string;
-  if (input.compareUrl !== null) {
-    urlBody = input.compareUrl;
-  } else {
-    const reason = input.urlUnavailableReason ?? "the branch is not pushed to origin";
-    const commands =
-      input.pushCommands.length > 0 ? `\n\n\`\`\`sh\n${input.pushCommands.join("\n")}\n\`\`\`` : "";
-    urlBody = `The compare URL will not work yet: ${reason}.${commands}`;
-  }
+        : truncateLines(input.report, AGENT_REPORT_MAX_LINES, "agent report");
+  const reviewBody = renderReviewUrl(input.review);
 
   const packet = [
     header,
@@ -210,9 +362,11 @@ export function buildPacket(input: PacketInput): string {
     section("Untracked files", untrackedBody),
     section("Mutation results", mutationsBody),
     section("Agent report", reportBody),
-    section("Review URL", urlBody),
-    "Paste this whole text, including the URL on its own line, in the chat.",
+    section("Review URL", reviewBody),
+    PACKET_FINAL_LINE,
   ].join("\n\n");
 
-  return `${capPacket(packet, MAX_PACKET_LINES)}\n`;
+  const preserve =
+    input.review.kind === "pull" ? [input.review.diffUrl, PACKET_FINAL_LINE] : [PACKET_FINAL_LINE];
+  return `${capPacket(packet, MAX_PACKET_LINES, preserve)}\n`;
 }

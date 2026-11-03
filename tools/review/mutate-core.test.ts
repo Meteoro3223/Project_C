@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyExactlyOnce,
+  baselineVerdict,
   classifyRun,
   countOccurrences,
   firstLines,
@@ -12,6 +13,8 @@ import {
   renderMutationReport,
   renderMutationTable,
   shouldRestoreBackup,
+  zeroTests,
+  ZERO_TESTS_MESSAGE,
 } from "./mutate-core";
 
 const firstMutation = {
@@ -241,6 +244,7 @@ describe("classifyRun", () => {
     exitCode: 0,
     output: "Test Files  1 passed (1)",
     failedTests: [],
+    totalTests: 1,
     timedOut: false,
   };
 
@@ -303,6 +307,39 @@ describe("classifyRun", () => {
     expect(
       classifyRun({ ...passing, exitCode: 1, failedTests: ["suite rejects bad input"] }),
     ).toEqual({ result: "KILLED", failingTest: "suite rejects bad input" });
+  });
+});
+
+describe("zero-test guard", () => {
+  const greenWithoutTests = {
+    exitCode: 0,
+    output: "No test files found",
+    failedTests: [],
+    totalTests: 0,
+    timedOut: false,
+  };
+
+  it("marks a green run with zero executed tests as ERROR, never SURVIVED", () => {
+    expect(classifyRun(greenWithoutTests)).toEqual({
+      result: "ERROR",
+      failingTest: ZERO_TESTS_MESSAGE,
+    });
+  });
+
+  it("rejects a baseline that executed zero tests", () => {
+    expect(baselineVerdict(greenWithoutTests)).toEqual({ green: false, zeroTests: true });
+  });
+
+  it("accepts a baseline that executed at least one test", () => {
+    expect(baselineVerdict({ ...greenWithoutTests, totalTests: 1 })).toEqual({
+      green: true,
+      zeroTests: false,
+    });
+  });
+
+  it("does not treat timeouts or failing runs as the zero-test case", () => {
+    expect(zeroTests({ ...greenWithoutTests, timedOut: true })).toBe(false);
+    expect(zeroTests({ ...greenWithoutTests, exitCode: 1 })).toBe(false);
   });
 });
 
