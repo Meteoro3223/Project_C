@@ -7,8 +7,10 @@ import {
   buildPacket,
   inferTaskId,
   type CheckStatus,
+  type DiffBase,
   type PacketInput,
 } from "./packet-core";
+import { copyToClipboard } from "./clipboard";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -121,55 +123,28 @@ function getPushState(branch: string): PushState {
   return { pushed: true, commands: [], reason: null };
 }
 
-function copyToClipboard(text: string): Promise<boolean> {
-  if (process.platform !== "win32") {
-    return Promise.resolve(false);
+function resolveDiffBase(): DiffBase {
+  const originMain = tryGit(["rev-parse", "--verify", "--quiet", "origin/main"]);
+  if (originMain !== null && originMain.trim().length > 0) {
+    return { ref: "origin/main", fallback: false };
   }
-
-  return new Promise((resolve) => {
-    const child = spawn("clip", [], {
-      stdio: ["pipe", "ignore", "ignore"],
-      windowsHide: true,
-    });
-
-    let settled = false;
-    const finish = (value: boolean): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve(value);
-    };
-
-    child.on("error", () => {
-      finish(false);
-    });
-    child.on("close", (exitCode) => {
-      finish(exitCode === 0);
-    });
-
-    if (child.stdin === null) {
-      finish(false);
-      return;
-    }
-    child.stdin.on("error", () => {
-      finish(false);
-    });
-    // clip.exe accepts UTF-8 on this platform; UTF-16LE mangles non-ASCII text.
-    child.stdin.end(Buffer.from(text, "utf8"));
-  });
+  return { ref: "main", fallback: true };
 }
 
-function collectDiff(): { label: string; stat: string; uncommittedStat: string } {
+function collectDiff(base: DiffBase): {
+  label: string;
+  stat: string;
+  uncommittedStat: string;
+} {
   const uncommitted = tryGit(["diff", "--stat", "HEAD"]) ?? "";
   const uncommittedStat = uncommitted.trim().length > 0 ? uncommitted : "(none)";
 
-  const aheadRaw = tryGit(["rev-list", "--count", "main..HEAD"]);
-  const ahead = aheadRaw === null ? 0 : Number.parseInt(aheadRaw, 10);
+  const aheadRaw = tryGit(["rev-list", "--count", `${base.ref}..HEAD`]);
+  const ahead = aheadRaw === null ? Number.NaN : Number.parseInt(aheadRaw, 10);
   if (Number.isFinite(ahead) && ahead > 0) {
-    const stat = tryGit(["diff", "--stat", "main...HEAD"]) ?? "";
+    const stat = tryGit(["diff", "--stat", `${base.ref}...HEAD`]) ?? "";
     return {
-      label: `main...HEAD, ${ahead} commit(s) ahead`,
+      label: `${base.ref}...HEAD, ${ahead} commit(s) ahead`,
       stat: stat.trim().length > 0 ? stat : "(no changes)",
       uncommittedStat,
     };
@@ -177,7 +152,7 @@ function collectDiff(): { label: string; stat: string; uncommittedStat: string }
 
   const stat = tryGit(["diff", "--cached", "--stat"]) ?? "";
   return {
-    label: "staged changes (no commits ahead of main)",
+    label: `staged changes (no commits ahead of ${base.ref})`,
     stat: stat.trim().length > 0 ? stat : "(no staged changes)",
     uncommittedStat,
   };
@@ -224,7 +199,8 @@ async function main(): Promise<void> {
   const head = git(["rev-parse", "--short", "HEAD"]);
   const date = new Date().toISOString();
   const taskId = inferTaskId(branch);
-  const { label: diffLabel, stat: diffStat, uncommittedStat } = collectDiff();
+  const diffBase = resolveDiffBase();
+  const { label: diffLabel, stat: diffStat, uncommittedStat } = collectDiff(diffBase);
   const untracked = (tryGit(["ls-files", "--others", "--exclude-standard"]) ?? "")
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -246,6 +222,7 @@ async function main(): Promise<void> {
     branch,
     head,
     date,
+    diffBase,
     checkStatus,
     checkOutput,
     diffLabel,

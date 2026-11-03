@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -14,10 +15,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   applyExactlyOnce,
-  extractFailingTests,
+  classifyRun,
+  firstLines,
   formatZodError,
   mutationSpecSchema,
-  renderMutationTable,
+  mutationTargetRejection,
+  parseVitestResult,
+  renderMutationReport,
+  shouldRestoreBackup,
   type MutationSpec,
   type MutationTableRow,
 } from "./mutate-core";
@@ -25,6 +30,10 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const reviewDir = path.join(repoRoot, ".review");
 const backupDir = path.join(reviewDir, "backup");
+const vitestResultFile = path.join(reviewDir, "vitest-result.json");
+const vitestResultRelative = ".review/vitest-result.json";
+const mutatedHashSuffix = ".mutated.sha256";
+const defaultTimeoutSeconds = 180;
 
 interface RepoPath {
   absolute: string;
@@ -35,12 +44,22 @@ interface CommandResult {
   exitCode: number | null;
   output: string;
   error?: string;
+  timedOut: boolean;
+}
+
+interface TestRunResult extends CommandResult {
+  failedTests: string[];
 }
 
 interface ActiveMutation {
   absolute: string;
   relative: string;
   original: Buffer;
+}
+
+interface CliArgs {
+  specArg: string;
+  timeoutMs: number;
 }
 
 let activeMutation: ActiveMutation | null = null;
@@ -53,6 +72,14 @@ function print(text: string): void {
 
 function toDisplayPath(relative: string): string {
   return relative.replaceAll(path.sep, "/");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sha256(content: Buffer | string): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 function resolveRepoPath(input: string): RepoPath {
@@ -149,6 +176,27 @@ function pruneEmptyDirectories(directory: string): void {
   }
 }
 
+function backupPathFor(relative: string): string {
+  return path.join(backupDir, relative);
+}
+
+function hashSidecarPathFor(backupPath: string): string {
+  return `${backupPath}${mutatedHashSuffix}`;
+}
+
+function removeBackup(relative: string): void {
+  const backupPath = backupPathFor(relative);
+  rmSync(backupPath, { force: true });
+  rmSync(hashSidecarPathFor(backupPath), { force: true });
+}
+
+function backupFile(absolute: string, relative: string, mutatedContent: string): void {
+  const backupPath = backupPathFor(relative);
+  mkdirSync(path.dirname(backupPath), { recursive: true });
+  writeFileSync(backupPath, readFileSync(absolute));
+  writeFileSync(hashSidecarPathFor(backupPath), `${sha256(mutatedContent)}\n`, "utf8");
+}
+
 function restoreActiveMutation(reason: string): void {
   if (activeMutation === null) {
     return;
@@ -156,43 +204,80 @@ function restoreActiveMutation(reason: string): void {
 
   const current = activeMutation;
   activeMutation = null;
-  try {
-    writeFileSync(current.absolute, current.original);
-    const backupPath = path.join(backupDir, current.relative);
-    if (existsSync(backupPath)) {
-      rmSync(backupPath, { force: true });
-    }
-    pruneEmptyDirectories(backupDir);
-    print(`Restored ${toDisplayPath(current.relative)} (${reason}).`);
-  } catch (error) {
-    console.error(`FAILED to restore ${toDisplayPath(current.relative)}:`, error);
+  const expectedHash = sha256(current.original);
+
+  writeFileSync(current.absolute, current.original);
+  const restoredHash = sha256(readFileSync(current.absolute));
+  if (restoredHash !== expectedHash) {
+    throw new Error(
+      `RESTORE VERIFICATION FAILED for ${toDisplayPath(current.relative)}: ` +
+        `expected sha256 ${expectedHash}, got ${restoredHash}. ` +
+        `Inspect the file with "git diff" and recover it from .review/backup/.`,
+    );
   }
+
+  removeBackup(current.relative);
+  pruneEmptyDirectories(backupDir);
+  print(`Restored ${toDisplayPath(current.relative)} (${reason}).`);
 }
 
-function recoverBackups(): void {
-  const backups = walkFiles(backupDir);
+function recoverBackups(): boolean {
+  const backups = walkFiles(backupDir).filter((file) => !file.endsWith(mutatedHashSuffix));
   if (backups.length === 0) {
-    return;
+    pruneEmptyDirectories(backupDir);
+    return true;
   }
 
   const restored: string[] = [];
+  let ok = true;
+
   for (const backup of backups) {
     const relative = path.relative(backupDir, backup);
+    const display = toDisplayPath(relative);
+    const sidecar = hashSidecarPathFor(backup);
+
+    if (!existsSync(sidecar)) {
+      console.warn(
+        `Kept .review/backup/${display}: its mutated sha256 sidecar is missing, so it cannot be checked safely. ` +
+          `Inspect it with "git diff -- ${display}" and remove the backup manually once resolved.`,
+      );
+      continue;
+    }
+
     const { absolute } = resolveRepoPath(relative);
-    mkdirSync(path.dirname(absolute), { recursive: true });
-    writeFileSync(absolute, readFileSync(backup));
-    rmSync(backup, { force: true });
-    restored.push(toDisplayPath(relative));
+    const mutatedHash = readFileSync(sidecar, "utf8");
+    const currentHash = existsSync(absolute) ? sha256(readFileSync(absolute)) : null;
+
+    if (!shouldRestoreBackup(currentHash, mutatedHash)) {
+      console.warn(
+        `Left .review/backup/${display} untouched: ${display} no longer contains the mutated content (or is missing). ` +
+          `Inspect it with "git diff -- ${display}" and remove the backup manually once resolved.`,
+      );
+      continue;
+    }
+
+    try {
+      const original = readFileSync(backup);
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, original);
+      const restoredHash = sha256(readFileSync(absolute));
+      if (restoredHash !== sha256(original)) {
+        throw new Error(`expected sha256 ${sha256(original)}, got ${restoredHash}`);
+      }
+      removeBackup(relative);
+      restored.push(display);
+    } catch (error) {
+      ok = false;
+      console.error(`RESTORE VERIFICATION FAILED for ${display}: ${errorMessage(error)}`);
+      console.error("The backup was kept in .review/backup/. Inspect the file with git diff.");
+    }
   }
+
   pruneEmptyDirectories(backupDir);
-
-  print(`Recovered ${restored.length} file(s) from .review/backup/: ${restored.join(", ")}`);
-}
-
-function backupFile(absolute: string, relative: string): void {
-  const backupPath = path.join(backupDir, relative);
-  mkdirSync(path.dirname(backupPath), { recursive: true });
-  writeFileSync(backupPath, readFileSync(absolute));
+  if (restored.length > 0) {
+    print(`Recovered ${restored.length} file(s) from .review/backup/: ${restored.join(", ")}`);
+  }
+  return ok;
 }
 
 function installCleanupHandlers(): void {
@@ -201,8 +286,13 @@ function installCleanupHandlers(): void {
       return;
     }
     handlingSignal = true;
-    activeChild?.kill("SIGTERM");
-    restoreActiveMutation(signal);
+    killProcessTree(activeChild);
+    try {
+      restoreActiveMutation(signal);
+    } catch (error) {
+      console.error(errorMessage(error));
+      process.exitCode = 1;
+    }
     process.exit(130);
   };
 
@@ -218,11 +308,37 @@ function installCleanupHandlers(): void {
     });
   }
   process.on("exit", () => {
-    restoreActiveMutation("process exit");
+    try {
+      restoreActiveMutation("process exit");
+    } catch (error) {
+      console.error(errorMessage(error));
+      process.exitCode = 1;
+    }
   });
 }
 
-function runPnpm(args: readonly string[]): Promise<CommandResult> {
+function killProcessTree(child: ChildProcess | null): void {
+  if (child === null || child.pid === undefined) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    try {
+      execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+        timeout: 5_000,
+      });
+      return;
+    } catch {
+      // Fall through to the direct kill below.
+    }
+  }
+
+  child.kill("SIGKILL");
+}
+
+function runPnpm(args: readonly string[], timeoutMs: number): Promise<CommandResult> {
   return new Promise((resolve) => {
     const options = {
       cwd: repoRoot,
@@ -240,11 +356,20 @@ function runPnpm(args: readonly string[]): Promise<CommandResult> {
 
     let output = "";
     let settled = false;
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killProcessTree(child);
+      finish({ exitCode: null, output, timedOut: true });
+    }, timeoutMs);
+
     const finish = (result: CommandResult): void => {
       if (settled) {
         return;
       }
       settled = true;
+      clearTimeout(timer);
       if (activeChild === child) {
         activeChild = null;
       }
@@ -258,10 +383,10 @@ function runPnpm(args: readonly string[]): Promise<CommandResult> {
       output += chunk.toString("utf8");
     });
     child.on("error", (error) => {
-      finish({ exitCode: null, output, error: error.message });
+      finish({ exitCode: null, output, error: error.message, timedOut });
     });
     child.on("close", (exitCode) => {
-      finish({ exitCode, output });
+      finish({ exitCode, output, timedOut });
     });
   });
 }
@@ -283,8 +408,7 @@ function parseSpec(specArg: string): MutationSpec | null {
   try {
     raw = readFileSync(resolveRepoPath(specArg).absolute, "utf8");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Cannot read mutation spec "${specArg}": ${message}`);
+    console.error(`Cannot read mutation spec "${specArg}": ${errorMessage(error)}`);
     return null;
   }
 
@@ -292,8 +416,7 @@ function parseSpec(specArg: string): MutationSpec | null {
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Invalid JSON in "${specArg}": ${message}`);
+    console.error(`Invalid JSON in "${specArg}": ${errorMessage(error)}`);
     return null;
   }
 
@@ -308,11 +431,62 @@ function parseSpec(specArg: string): MutationSpec | null {
       assertRepoTestPath(testPath);
     }
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(errorMessage(error));
     return null;
   }
 
   return result.data;
+}
+
+function parseCliArgs(argv: readonly string[]): CliArgs | string {
+  let specArg: string | null = null;
+  let timeoutSeconds = defaultTimeoutSeconds;
+
+  const parseTimeout = (value: string | undefined): string | null => {
+    if (value === undefined || !/^\d+$/u.test(value)) {
+      return "--timeout expects a positive integer number of seconds";
+    }
+    const seconds = Number.parseInt(value, 10);
+    if (!Number.isSafeInteger(seconds) || seconds < 1) {
+      return "--timeout expects a positive integer number of seconds";
+    }
+    timeoutSeconds = seconds;
+    return null;
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      continue;
+    }
+    if (arg === "--timeout") {
+      index += 1;
+      const error = parseTimeout(argv[index]);
+      if (error !== null) {
+        return error;
+      }
+      continue;
+    }
+    if (arg.startsWith("--timeout=")) {
+      const error = parseTimeout(arg.slice("--timeout=".length));
+      if (error !== null) {
+        return error;
+      }
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      return `Unknown option: ${arg}`;
+    }
+    if (specArg !== null) {
+      return `Unexpected argument: ${arg}`;
+    }
+    specArg = arg;
+  }
+
+  if (specArg === null) {
+    return "Usage: pnpm mutate <spec.json> [--timeout <seconds>]";
+  }
+  return { specArg, timeoutMs: timeoutSeconds * 1_000 };
 }
 
 function needsTestDatabase(tests: readonly string[]): boolean {
@@ -328,27 +502,101 @@ async function prepareTestDatabase(spec: MutationSpec): Promise<boolean> {
   }
 
   print("Preparing the API test database...");
-  const result = await runPnpm(["db:test:prepare"]);
+  const result = await runPnpm(["db:test:prepare"], defaultTimeoutSeconds * 1_000);
   if (result.exitCode !== 0) {
     console.error("Failed to prepare the API test database; no mutations were run.");
     if (result.error !== undefined) {
       console.error(result.error);
     }
-    print(result.output.trimEnd());
+    console.error(firstLines(result.output, 3));
     process.exitCode = 1;
     return false;
   }
   return true;
 }
 
+async function runTests(spec: MutationSpec, timeoutMs: number): Promise<TestRunResult> {
+  rmSync(vitestResultFile, { force: true });
+  const result = await runPnpm(
+    [
+      "exec",
+      "vitest",
+      "run",
+      ...spec.tests,
+      "--reporter=json",
+      `--outputFile=${vitestResultRelative}`,
+    ],
+    timeoutMs,
+  );
+
+  let output = result.output;
+  if (result.error !== undefined) {
+    output = `${result.error}\n${output}`;
+  }
+
+  if (result.timedOut) {
+    return { ...result, output, failedTests: [] };
+  }
+
+  if (!existsSync(vitestResultFile)) {
+    return {
+      ...result,
+      output: `vitest did not write ${vitestResultRelative}\n${output}`,
+      failedTests: [],
+    };
+  }
+
+  const parsed = parseVitestResult(readFileSync(vitestResultFile, "utf8"));
+  if (!parsed.ok) {
+    return { ...result, output: `${parsed.reason}\n${output}`, failedTests: [] };
+  }
+
+  const { failedTests, messages } = parsed.report;
+  if (failedTests.length === 0 && messages.length > 0) {
+    output = `${messages.join("\n")}\n${output}`;
+  }
+  return { ...result, output, failedTests };
+}
+
+async function runBaseline(spec: MutationSpec, timeoutMs: number): Promise<boolean> {
+  print(`Running the unmutated baseline (${spec.tests.join(", ")})...`);
+  const result = await runTests(spec, timeoutMs);
+
+  if (result.exitCode === 0 && !result.timedOut) {
+    print("Baseline is green.");
+    return true;
+  }
+
+  console.error("Baseline failed:");
+  if (result.timedOut) {
+    console.error(`- (timeout after ${Math.round(timeoutMs / 1_000)}s)`);
+  }
+  if (result.failedTests.length > 0) {
+    for (const name of result.failedTests) {
+      console.error(`- ${name}`);
+    }
+  } else {
+    console.error(firstLines(result.output, 3));
+  }
+  console.error("baseline is red, no mutation was run");
+  process.exitCode = 1;
+  return false;
+}
+
 async function runMutation(
   spec: MutationSpec,
   mutation: MutationSpec["mutations"][number],
+  timeoutMs: number,
 ): Promise<MutationTableRow> {
   let location = `${mutation.file}:?`;
   const expected = mutation.expectKilledBy;
 
   try {
+    const rejection = mutationTargetRejection(mutation.file);
+    if (rejection !== null) {
+      return { id: mutation.id, location, result: "INVALID", failingTest: rejection };
+    }
+
     const target = assertExistingRepoFile(mutation.file);
     const original = readFileSync(target.absolute);
     const applied = applyExactlyOnce(original.toString("utf8"), mutation.find, mutation.replace);
@@ -357,45 +605,51 @@ async function runMutation(
     }
 
     location = `${toDisplayPath(target.relative)}:${applied.line}`;
-    backupFile(target.absolute, target.relative);
+    backupFile(target.absolute, target.relative, applied.content);
     activeMutation = { absolute: target.absolute, relative: target.relative, original };
     writeFileSync(target.absolute, applied.content, "utf8");
 
     print(`[${mutation.id}] running tests against ${location}...`);
-    const result = await runPnpm(["exec", "vitest", "run", ...spec.tests]);
-    const failingTests = extractFailingTests(result.output);
+    const result = await runTests(spec, timeoutMs);
+    const classified = classifyRun({
+      exitCode: result.exitCode,
+      output: result.output,
+      failedTests: result.failedTests,
+      expectedKilledBy: expected,
+      timedOut: result.timedOut,
+    });
 
-    if (result.exitCode === null) {
-      return {
-        id: mutation.id,
-        location,
-        result: "INVALID",
-        failingTest: `test command failed: ${result.error ?? "unknown error"}`,
-      };
-    }
-    if (result.exitCode === 0) {
-      return { id: mutation.id, location, result: "SURVIVED", failingTest: "(none)" };
-    }
-
-    const firstFailure = failingTests[0] ?? "tests failed (no test name parsed)";
-    if (expected !== undefined && !failingTests.some((name) => name.includes(expected))) {
-      return { id: mutation.id, location, result: "KILLED_BY_OTHER", failingTest: firstFailure };
-    }
-    return { id: mutation.id, location, result: "KILLED", failingTest: firstFailure };
+    return { id: mutation.id, location, ...classified };
   } catch (error) {
     return {
       id: mutation.id,
       location,
       result: "INVALID",
-      failingTest: error instanceof Error ? error.message : String(error),
+      failingTest: errorMessage(error),
     };
   } finally {
     restoreActiveMutation("finally");
   }
 }
 
+function reportRow(row: MutationTableRow): void {
+  if (row.result === "KILLED" || row.result === "KILLED_BY_OTHER") {
+    print(`[${row.id}] ${row.result} (${row.failingTest})`);
+    return;
+  }
+  if (row.result === "TIMEOUT") {
+    print(`[${row.id}] TIMEOUT (timeout)`);
+    return;
+  }
+  if (row.result === "ERROR") {
+    print(`[${row.id}] ERROR\n${row.failingTest}`);
+    return;
+  }
+  print(`[${row.id}] ${row.result}`);
+}
+
 function writeMutationReport(spec: MutationSpec, rows: readonly MutationTableRow[]): void {
-  const markdown = `# Mutation results: ${spec.task}\n\n${renderMutationTable(rows)}\n`;
+  const markdown = renderMutationReport(spec.task, rows);
   mkdirSync(reviewDir, { recursive: true });
   writeFileSync(path.join(reviewDir, "mutations.md"), markdown, "utf8");
   print(markdown.trimEnd());
@@ -419,16 +673,19 @@ function verifyWorkingTree(before: string): boolean {
 
 async function main(): Promise<void> {
   installCleanupHandlers();
-  recoverBackups();
-
-  const specArg = process.argv[2];
-  if (specArg === undefined) {
-    console.error("Usage: pnpm mutate <spec.json>");
+  if (!recoverBackups()) {
     process.exitCode = 1;
     return;
   }
 
-  const spec = parseSpec(specArg);
+  const args = parseCliArgs(process.argv.slice(2));
+  if (typeof args === "string") {
+    console.error(args);
+    process.exitCode = 1;
+    return;
+  }
+
+  const spec = parseSpec(args.specArg);
   if (spec === null) {
     process.exitCode = 1;
     return;
@@ -440,20 +697,25 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (!(await runBaseline(spec, args.timeoutMs))) {
+    return;
+  }
+
   const rows: MutationTableRow[] = [];
   for (const mutation of spec.mutations) {
-    const row = await runMutation(spec, mutation);
+    const row = await runMutation(spec, mutation, args.timeoutMs);
     rows.push(row);
-    print(
-      `[${mutation.id}] ${row.result}${row.result === "KILLED" || row.result === "KILLED_BY_OTHER" ? ` (${row.failingTest})` : ""}`,
-    );
+    reportRow(row);
   }
 
   writeMutationReport(spec, rows);
 
   const failed = rows.some(
     (row) =>
-      row.result === "SURVIVED" || row.result === "INVALID" || row.result === "KILLED_BY_OTHER",
+      row.result === "SURVIVED" ||
+      row.result === "INVALID" ||
+      row.result === "ERROR" ||
+      row.result === "KILLED_BY_OTHER",
   );
   if (failed) {
     process.exitCode = 1;

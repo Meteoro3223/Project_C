@@ -28,7 +28,8 @@ export const mutationSpecSchema = z
 export type MutationSpec = z.infer<typeof mutationSpecSchema>;
 export type Mutation = z.infer<typeof mutationSchema>;
 
-export type MutationResult = "KILLED" | "KILLED_BY_OTHER" | "SURVIVED" | "INVALID";
+export type MutationResult =
+  "KILLED" | "KILLED_BY_OTHER" | "SURVIVED" | "INVALID" | "ERROR" | "TIMEOUT";
 
 export interface MutationTableRow {
   id: string;
@@ -122,37 +123,176 @@ export function renderMutationTable(rows: readonly MutationTableRow[]): string {
   return [header, separator, ...body].join("\n");
 }
 
-const ESCAPE = String.fromCharCode(27);
-const ANSI_PATTERN = new RegExp(`${ESCAPE}\\[[0-?]*[ -/]*[@-~]`, "g");
-
-export function stripAnsi(text: string): string {
-  return text.replace(ANSI_PATTERN, "");
+export function renderMutationReport(task: string, rows: readonly MutationTableRow[]): string {
+  return `# Mutation results: ${task}\n\n${renderMutationTable(rows)}\n`;
 }
 
-export function extractFailingTests(output: string): string[] {
-  const names = new Set<string>();
+export interface VitestReport {
+  failedTests: string[];
+  messages: string[];
+  totalTests: number;
+  succeeded: boolean;
+}
 
-  for (const line of stripAnsi(output).split(/\r?\n/)) {
-    const failMatch = /^\s*FAIL\s+(.+)$/u.exec(line);
-    if (failMatch !== null) {
-      const [, rest] = failMatch;
-      if (rest !== undefined) {
-        const parts = rest.split(" > ");
-        const name = parts.length > 1 ? parts.slice(1).join(" > ").trim() : rest.trim();
-        if (name.length > 0) {
-          names.add(name);
-        }
-      }
+export type VitestParseResult = { ok: true; report: VitestReport } | { ok: false; reason: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * Reads the JSON reporter output written by Vitest. Only assertions that the
+ * reporter marks as failed are trusted; a run that failed without any failed
+ * assertion (transform error, crash, missing database) is not a killed mutant.
+ */
+export function parseVitestResult(raw: string): VitestParseResult {
+  if (raw.trim().length === 0) {
+    return { ok: false, reason: "vitest did not write a JSON report" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason: `invalid vitest JSON report: ${message}` };
+  }
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.testResults)) {
+    return { ok: false, reason: "unexpected vitest JSON report shape: missing testResults" };
+  }
+
+  const failed = new Set<string>();
+  const messages = new Set<string>();
+  let totalTests = 0;
+
+  for (const file of parsed.testResults) {
+    if (!isRecord(file)) {
+      continue;
     }
-
-    const crossMatch = /^\s*[×✗✕]\s+(.+?)(?:\s+\d+(?:\.\d+)?\s*(?:ms|s))?\s*$/u.exec(line);
-    if (crossMatch !== null) {
-      const [, name] = crossMatch;
-      if (name !== undefined && name.trim().length > 0) {
-        names.add(name.trim());
+    const message = nonEmptyString(file.message);
+    if (message !== null) {
+      messages.add(message);
+    }
+    if (!Array.isArray(file.assertionResults)) {
+      continue;
+    }
+    for (const assertion of file.assertionResults) {
+      if (!isRecord(assertion)) {
+        continue;
+      }
+      totalTests += 1;
+      if (assertion.status !== "failed") {
+        continue;
+      }
+      const name = nonEmptyString(assertion.fullName) ?? nonEmptyString(assertion.title);
+      if (name !== null) {
+        failed.add(name);
       }
     }
   }
 
-  return [...names];
+  return {
+    ok: true,
+    report: {
+      failedTests: [...failed],
+      messages: [...messages],
+      totalTests,
+      succeeded: parsed.success === true,
+    },
+  };
+}
+
+export interface TestRunOutcome {
+  exitCode: number | null;
+  output: string;
+  failedTests: readonly string[];
+  expectedKilledBy?: string | undefined;
+  timedOut: boolean;
+}
+
+export interface ClassifiedRun {
+  result: MutationResult;
+  failingTest: string;
+}
+
+export function firstLines(text: string, count: number): string {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error("count must be a positive integer");
+  }
+
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const head = lines.slice(0, count).join("\n").trimEnd();
+  return head.length > 0 ? head : "(no output)";
+}
+
+/**
+ * Maps a test run to a mutation result. KILLED requires at least one failed
+ * test parsed from the JSON report; a non-zero exit without one is ERROR.
+ */
+export function classifyRun(outcome: TestRunOutcome): ClassifiedRun {
+  if (outcome.timedOut) {
+    return { result: "TIMEOUT", failingTest: "(timeout)" };
+  }
+  if (outcome.exitCode === null) {
+    return { result: "ERROR", failingTest: firstLines(outcome.output, 3) };
+  }
+  if (outcome.exitCode === 0) {
+    return { result: "SURVIVED", failingTest: "(none)" };
+  }
+  if (outcome.failedTests.length === 0) {
+    return { result: "ERROR", failingTest: firstLines(outcome.output, 3) };
+  }
+
+  const firstFailure = outcome.failedTests[0] ?? "(unknown test)";
+  const expected = outcome.expectedKilledBy;
+  if (expected !== undefined && !outcome.failedTests.some((name) => name.includes(expected))) {
+    return { result: "KILLED_BY_OTHER", failingTest: firstFailure };
+  }
+  return { result: "KILLED", failingTest: firstFailure };
+}
+
+export function shouldRestoreBackup(currentSha256: string | null, mutatedSha256: string): boolean {
+  return (
+    currentSha256 !== null &&
+    currentSha256.trim().toLowerCase() === mutatedSha256.trim().toLowerCase()
+  );
+}
+
+const PRISMA_REASON =
+  "Prisma schema and migration files cannot be mutation-tested here: the API test database is prepared once, so the change would not take effect. Verify this mutation manually.";
+const GENERATED_PRISMA_REASON =
+  "This file needs a regenerated Prisma client to take effect, and the API test database is prepared once. Verify this mutation manually.";
+
+/**
+ * Returns a rejection reason when a mutation cannot be observed by the
+ * prepared test database (Prisma schema, migrations or generated client).
+ */
+export function mutationTargetRejection(file: string): string | null {
+  const normalized = file
+    .replaceAll("\\", "/")
+    .replace(/^\.\/+/u, "")
+    .toLowerCase();
+
+  if (normalized === "apps/api/prisma" || normalized.startsWith("apps/api/prisma/")) {
+    return PRISMA_REASON;
+  }
+  if (normalized.endsWith(".prisma")) {
+    return PRISMA_REASON;
+  }
+  if (/(^|\/)prisma\/schema\.prisma$/u.test(normalized)) {
+    return PRISMA_REASON;
+  }
+  if (/(^|\/)prisma\/migrations(\/|$)/u.test(normalized)) {
+    return PRISMA_REASON;
+  }
+  if (/(^|\/)(?:generated\/prisma|\.prisma)\//u.test(normalized)) {
+    return GENERATED_PRISMA_REASON;
+  }
+
+  return null;
 }
