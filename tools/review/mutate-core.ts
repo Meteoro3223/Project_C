@@ -211,6 +211,7 @@ export interface TestRunOutcome {
   exitCode: number | null;
   output: string;
   failedTests: readonly string[];
+  totalTests: number;
   expectedKilledBy?: string | undefined;
   timedOut: boolean;
 }
@@ -218,6 +219,31 @@ export interface TestRunOutcome {
 export interface ClassifiedRun {
   result: MutationResult;
   failingTest: string;
+}
+
+export interface BaselineVerdict {
+  green: boolean;
+  zeroTests: boolean;
+}
+
+export const ZERO_TESTS_MESSAGE =
+  "the test run executed zero tests (the root vitest config sets passWithNoTests: true)";
+
+/**
+ * A green run proves nothing when Vitest executed no tests. The root config
+ * sets `passWithNoTests: true`, so this must be checked explicitly.
+ */
+export function zeroTests(
+  outcome: Pick<TestRunOutcome, "timedOut" | "exitCode" | "totalTests">,
+): boolean {
+  return !outcome.timedOut && outcome.exitCode === 0 && outcome.totalTests === 0;
+}
+
+export function baselineVerdict(outcome: TestRunOutcome): BaselineVerdict {
+  return {
+    green: !outcome.timedOut && outcome.exitCode === 0 && outcome.totalTests > 0,
+    zeroTests: zeroTests(outcome),
+  };
 }
 
 export function firstLines(text: string, count: number): string {
@@ -240,6 +266,9 @@ export function classifyRun(outcome: TestRunOutcome): ClassifiedRun {
   }
   if (outcome.exitCode === null) {
     return { result: "ERROR", failingTest: firstLines(outcome.output, 3) };
+  }
+  if (zeroTests(outcome)) {
+    return { result: "ERROR", failingTest: ZERO_TESTS_MESSAGE };
   }
   if (outcome.exitCode === 0) {
     return { result: "SURVIVED", failingTest: "(none)" };

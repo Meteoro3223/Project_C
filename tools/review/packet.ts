@@ -3,12 +3,19 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  buildCompareUrl,
   buildPacket,
+  buildPullRequestApiUrl,
   inferTaskId,
+  parseGitHubRemote,
+  parsePullRequests,
+  resolveReviewOutcome,
   type CheckStatus,
   type DiffBase,
+  type GitHubRepo,
   type PacketInput,
+  type PullLookupResult,
+  type PushState,
+  type ReviewOutcome,
 } from "./packet-core";
 import { copyToClipboard } from "./clipboard";
 
@@ -76,12 +83,6 @@ function runCheck(): Promise<{ status: "pass" | "fail"; output: string }> {
       finish(exitCode === 0 ? "pass" : "fail");
     });
   });
-}
-
-interface PushState {
-  pushed: boolean;
-  commands: string[];
-  reason: string | null;
 }
 
 function getPushState(branch: string): PushState {
@@ -158,39 +159,76 @@ function collectDiff(base: DiffBase): {
   };
 }
 
-function collectReviewUrl(branch: string): {
-  compareUrl: string | null;
-  urlUnavailableReason: string | null;
-  pushCommands: string[];
-} {
+const PULL_LOOKUP_TIMEOUT_MS = 5_000;
+const ORIGIN_FETCH_TIMEOUT_MS = 10_000;
+
+function fetchOrigin(): boolean {
+  try {
+    execFileSync("git", ["fetch", "origin", "--quiet"], {
+      cwd: repoRoot,
+      stdio: "ignore",
+      timeout: ORIGIN_FETCH_TIMEOUT_MS,
+      windowsHide: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function lookupPullRequest(repo: GitHubRepo, branch: string): Promise<PullLookupResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PULL_LOOKUP_TIMEOUT_MS);
+  try {
+    const response = await fetch(buildPullRequestApiUrl(repo, branch), {
+      headers: {
+        "User-Agent": "proyecto-c-review-packet",
+        Accept: "application/vnd.github+json",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const hint = response.status === 403 || response.status === 429 ? " (rate limit?)" : "";
+      return { kind: "error", reason: `GitHub API returned HTTP ${response.status}${hint}` };
+    }
+    return parsePullRequests(await response.json());
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    const reason = timedOut
+      ? `the GitHub API request timed out after ${PULL_LOOKUP_TIMEOUT_MS / 1_000} s`
+      : error instanceof Error
+        ? error.message
+        : String(error);
+    return { kind: "error", reason };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function collectReviewUrl(branch: string): Promise<ReviewOutcome> {
   const push = getPushState(branch);
   const remoteUrl = tryGit(["remote", "get-url", "origin"]);
   if (remoteUrl === null) {
     return {
-      compareUrl: null,
-      urlUnavailableReason: "origin is not configured",
+      kind: "unavailable",
+      reason: "origin is not configured",
       pushCommands: [],
+      manualDiffUrl: null,
     };
   }
 
-  const candidate = buildCompareUrl(remoteUrl, branch);
-  if (candidate === null) {
+  const repo = parseGitHubRemote(remoteUrl);
+  if (repo === null) {
     return {
-      compareUrl: null,
-      urlUnavailableReason: "origin is not a GitHub remote",
+      kind: "unavailable",
+      reason: "origin is not a GitHub remote",
       pushCommands: [],
+      manualDiffUrl: null,
     };
   }
 
-  if (!push.pushed) {
-    return {
-      compareUrl: null,
-      urlUnavailableReason: push.reason ?? "the branch is not pushed to origin",
-      pushCommands: push.commands,
-    };
-  }
-
-  return { compareUrl: candidate, urlUnavailableReason: null, pushCommands: [] };
+  const lookup = push.pushed ? await lookupPullRequest(repo, branch) : null;
+  return resolveReviewOutcome(repo, branch, push, lookup);
 }
 
 async function main(): Promise<void> {
@@ -199,13 +237,17 @@ async function main(): Promise<void> {
   const head = git(["rev-parse", "--short", "HEAD"]);
   const date = new Date().toISOString();
   const taskId = inferTaskId(branch);
+  const originFetched = fetchOrigin();
+  if (!originFetched) {
+    process.stderr.write("Could not fetch origin; the diff base may be stale.\n");
+  }
   const diffBase = resolveDiffBase();
   const { label: diffLabel, stat: diffStat, uncommittedStat } = collectDiff(diffBase);
   const untracked = (tryGit(["ls-files", "--others", "--exclude-standard"]) ?? "")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const { compareUrl, urlUnavailableReason, pushCommands } = collectReviewUrl(branch);
+  const review = await collectReviewUrl(branch);
 
   let checkStatus: CheckStatus = "skipped";
   let checkOutput = "";
@@ -223,6 +265,7 @@ async function main(): Promise<void> {
     head,
     date,
     diffBase,
+    originFetchFailed: !originFetched,
     checkStatus,
     checkOutput,
     diffLabel,
@@ -231,9 +274,7 @@ async function main(): Promise<void> {
     untracked,
     mutations: readOptional(".review/mutations.md"),
     report: readOptional(".review/report.md"),
-    compareUrl,
-    urlUnavailableReason,
-    pushCommands,
+    review,
   };
 
   const packet = buildPacket(input);

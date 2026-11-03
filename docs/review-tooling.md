@@ -18,6 +18,10 @@ pnpm mutate .review/mutations.json --timeout 300
   baseline aborts the run with exit code 1, prints the failing test names and
   the sentence `baseline is red, no mutation was run`. This keeps a mutation
   result from looking "killed" when the suite was already broken.
+- A green baseline that executed **zero tests** is also red. The root Vitest
+  config sets `passWithNoTests: true`, so the JSON report's `totalTests` is
+  checked explicitly; a mutation run with zero executed tests is `ERROR`, never
+  `SURVIVED`.
 - If any test path is under `apps/api/`, the API test database is prepared once
   before the baseline. Nothing re-migrates it during the run.
 
@@ -117,9 +121,31 @@ manually. A backup without a sidecar is treated the same way.
 
 `pnpm review:packet` (`--skip-check` to skip `pnpm check`) builds the packet.
 
+- At startup the packet runs a best-effort `git fetch origin --quiet` with a
+  10 s timeout before resolving the diff base. If the fetch fails it is ignored
+  and the header says `- Origin fetch: could not fetch origin; diff base may be stale`.
 - "Commits ahead" and the diff stat are computed against **`origin/main`**.
   If `origin/main` does not exist, it falls back to local `main` and the packet
   header says so: `- Diff base: main (origin/main not found; falling back to main)`.
+- The review URL is a **pull request `.diff` URL**, not a `compare/...diff` URL.
+  GitHub's `robots.txt` disallows `/compare/` for the AI reviewer, while
+  `/pull/<N>.diff` is readable. After confirming the branch is pushed, the
+  packet calls `https://api.github.com/repos/<owner>/<repo>/pulls?head=<owner>:<branch>&state=all&per_page=1`
+  with Node's built-in `fetch`, a `User-Agent`, `Accept: application/vnd.github+json`
+  and a 5 s timeout. No token is used, so the API rate limit applies. The
+  response is validated with Zod and only the first PR is used:
+  - PR found: prints `https://github.com/<owner>/<repo>/pull/<N>.diff` on its
+    own line and the PR state (`open`, `merged` or `closed`).
+  - No PR yet: prints `https://github.com/<owner>/<repo>/compare/main...<branch>?expand=1`
+    and says the `.diff` URL will exist once the PR is created and
+    `pnpm review:packet --skip-check` is re-run.
+  - API failure, rate limit or offline: says so and tells the user to build
+    `https://github.com/<owner>/<repo>/pull/<N>.diff` by hand.
+    Branch names are URL-encoded per path segment; owner/repo come from
+    `parseGitHubRemote`.
+- The agent-report section is capped at 60 lines and the whole packet at 200.
+  Truncation notes stay visible, and the PR `.diff` URL line and the final line
+  are always preserved.
 - On Windows the packet is copied with PowerShell `Set-Clipboard`, reading a
   temporary UTF-8 file with an explicit `[Text.Encoding]::UTF8`. Going through
   PowerShell stdin or `clip.exe` UTF-8 stdin was not reliable for non-ASCII text

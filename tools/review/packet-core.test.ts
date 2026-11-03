@@ -1,14 +1,39 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  buildCompareUrl,
+  AGENT_REPORT_MAX_LINES,
+  buildCompareCreateUrl,
+  buildDiffBaseLine,
   buildPacket,
+  buildPullDiffUrl,
+  buildPullRequestApiUrl,
   capPacket,
+  encodeBranch,
   inferTaskId,
   lastLines,
+  PACKET_FINAL_LINE,
   parseGitHubRemote,
+  parsePullRequests,
+  renderReviewUrl,
+  resolveReviewOutcome,
   truncateLines,
   type PacketInput,
+  type PullLookupResult,
+  type PushState,
 } from "./packet-core";
+
+function readFixture(name: string): unknown {
+  const raw = readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+  return JSON.parse(raw);
+}
+
+const repo = { owner: "Meteoro3223", repo: "Project_C" };
+const pushed: PushState = { pushed: true, commands: [], reason: null };
+const notPushed: PushState = {
+  pushed: false,
+  commands: ["git push -u origin feat/p2-t3"],
+  reason: "the branch has no upstream",
+};
 
 describe("inferTaskId", () => {
   it.each([
@@ -41,21 +66,177 @@ describe("GitHub remote parsing", () => {
   });
 });
 
-describe("buildCompareUrl", () => {
-  it("builds a compare diff URL", () => {
-    expect(
-      buildCompareUrl("https://github.com/Meteoro3223/Project_C.git", "chore/review-tooling"),
-    ).toBe("https://github.com/Meteoro3223/Project_C/compare/main...chore/review-tooling.diff");
+describe("URL building", () => {
+  it("encodes branch names per path segment", () => {
+    expect(encodeBranch("chore/review-tooling")).toBe("chore/review-tooling");
+    expect(encodeBranch("feat/foo#1")).toBe("feat/foo%231");
+    expect(encodeBranch("feat/a b/c")).toBe("feat/a%20b/c");
   });
 
-  it("encodes unusual branch characters per path segment", () => {
-    expect(buildCompareUrl("git@github.com:owner/repo.git", "feat/foo#1")).toBe(
-      "https://github.com/owner/repo/compare/main...feat/foo%231.diff",
+  it("builds the compare URL used to create a pull request", () => {
+    expect(buildCompareCreateUrl("https://github.com/Meteoro3223/Project_C.git", "chore/x")).toBe(
+      "https://github.com/Meteoro3223/Project_C/compare/main...chore/x?expand=1",
     );
   });
 
-  it("returns null when the remote is not GitHub", () => {
-    expect(buildCompareUrl("https://example.com/owner/repo.git", "main")).toBeNull();
+  it("encodes the branch in the compare create URL", () => {
+    expect(buildCompareCreateUrl("git@github.com:owner/repo.git", "feat/foo#1")).toBe(
+      "https://github.com/owner/repo/compare/main...feat/foo%231?expand=1",
+    );
+  });
+
+  it("returns null for a non-GitHub compare remote", () => {
+    expect(buildCompareCreateUrl("https://example.com/owner/repo.git", "main")).toBeNull();
+  });
+
+  it("builds the pull request diff URL", () => {
+    expect(buildPullDiffUrl(repo, 42)).toBe(
+      "https://github.com/Meteoro3223/Project_C/pull/42.diff",
+    );
+  });
+
+  it("builds the API URL with the owner prefix and the encoded branch", () => {
+    expect(buildPullRequestApiUrl(repo, "feat/foo#1")).toBe(
+      "https://api.github.com/repos/Meteoro3223/Project_C/pulls?head=Meteoro3223:feat/foo%231&state=all&per_page=1",
+    );
+  });
+});
+
+describe("parsePullRequests", () => {
+  it("reads an open pull request from the fixture", () => {
+    expect(parsePullRequests(readFixture("github-pulls.open.json"))).toEqual({
+      kind: "found",
+      pull: { number: 42, state: "open" },
+    });
+  });
+
+  it("reports a merged pull request as merged even though GitHub says closed", () => {
+    expect(parsePullRequests(readFixture("github-pulls.merged.json"))).toEqual({
+      kind: "found",
+      pull: { number: 7, state: "merged" },
+    });
+  });
+
+  it("reports a closed unmerged pull request as closed", () => {
+    expect(parsePullRequests(readFixture("github-pulls.closed.json"))).toEqual({
+      kind: "found",
+      pull: { number: 8, state: "closed" },
+    });
+  });
+
+  it("returns none for an empty fixture", () => {
+    expect(parsePullRequests(readFixture("github-pulls.empty.json"))).toEqual({ kind: "none" });
+  });
+
+  it.each([[null], [{ message: "API rate limit exceeded" }], [[{ number: "42" }]]])(
+    "rejects an unexpected payload %j",
+    (payload) => {
+      expect(parsePullRequests(payload)).toEqual({
+        kind: "error",
+        reason: "unexpected GitHub API response",
+      });
+    },
+  );
+});
+
+describe("resolveReviewOutcome", () => {
+  const found: PullLookupResult = {
+    kind: "found",
+    pull: { number: 42, state: "open" },
+  };
+
+  it("returns the pull diff URL when the PR exists", () => {
+    expect(resolveReviewOutcome(repo, "chore/x", pushed, found)).toEqual({
+      kind: "pull",
+      diffUrl: "https://github.com/Meteoro3223/Project_C/pull/42.diff",
+      pull: { number: 42, state: "open" },
+    });
+  });
+
+  it("returns the create link when there is no PR yet", () => {
+    expect(resolveReviewOutcome(repo, "chore/x", pushed, { kind: "none" })).toEqual({
+      kind: "create",
+      createUrl: "https://github.com/Meteoro3223/Project_C/compare/main...chore/x?expand=1",
+    });
+  });
+
+  it("returns an unavailable outcome with a manual URL when the API lookup fails", () => {
+    expect(
+      resolveReviewOutcome(repo, "chore/x", pushed, { kind: "error", reason: "offline" }),
+    ).toEqual({
+      kind: "unavailable",
+      reason: "offline",
+      pushCommands: [],
+      manualDiffUrl: "https://github.com/Meteoro3223/Project_C/pull/<N>.diff",
+    });
+  });
+
+  it("keeps the push instructions when the branch is not pushed", () => {
+    expect(resolveReviewOutcome(repo, "chore/x", notPushed, null)).toEqual({
+      kind: "unavailable",
+      reason: "the branch has no upstream",
+      pushCommands: ["git push -u origin feat/p2-t3"],
+      manualDiffUrl: null,
+    });
+  });
+});
+
+describe("renderReviewUrl", () => {
+  it("prints the PR diff URL on its own line with the state", () => {
+    const body = renderReviewUrl({
+      kind: "pull",
+      diffUrl: "https://github.com/owner/repo/pull/42.diff",
+      pull: { number: 42, state: "merged" },
+    });
+    const lines = body.split("\n");
+
+    expect(lines[0]).toBe("https://github.com/owner/repo/pull/42.diff");
+    expect(lines).toContain("PR state: merged");
+  });
+
+  it("explains how to create the PR when none exists", () => {
+    const body = renderReviewUrl({
+      kind: "create",
+      createUrl: "https://github.com/owner/repo/compare/main...chore/x?expand=1",
+    });
+
+    expect(body).toContain("https://github.com/owner/repo/compare/main...chore/x?expand=1");
+    expect(body).toContain("The .diff URL will exist once the PR is created");
+    expect(body).toContain("pnpm review:packet --skip-check");
+  });
+
+  it("tells the user to build the URL by hand after an API failure", () => {
+    const body = renderReviewUrl({
+      kind: "unavailable",
+      reason: "GitHub API returned HTTP 403 (rate limit?)",
+      pushCommands: [],
+      manualDiffUrl: "https://github.com/owner/repo/pull/<N>.diff",
+    });
+
+    expect(body).toContain("GitHub API returned HTTP 403");
+    expect(body).toContain("Build the URL by hand as https://github.com/owner/repo/pull/<N>.diff");
+  });
+});
+
+describe("buildDiffBaseLine", () => {
+  it("names origin/main when it exists", () => {
+    expect(buildDiffBaseLine({ ref: "origin/main", fallback: false }, false)).toBe(
+      "- Diff base: origin/main",
+    );
+  });
+
+  it("mentions the fallback to local main", () => {
+    expect(buildDiffBaseLine({ ref: "main", fallback: true }, false)).toBe(
+      "- Diff base: main (origin/main not found; falling back to main)",
+    );
+  });
+
+  it("adds the stale-base warning only when the origin fetch failed", () => {
+    const failed = buildDiffBaseLine({ ref: "origin/main", fallback: false }, true);
+    expect(failed).toContain("could not fetch origin; diff base may be stale");
+    expect(buildDiffBaseLine({ ref: "origin/main", fallback: false }, false)).not.toContain(
+      "could not fetch origin",
+    );
   });
 });
 
@@ -97,6 +278,7 @@ const baseInput: PacketInput = {
   head: "26229f0",
   date: "2026-11-02T10:00:00.000Z",
   diffBase: { ref: "origin/main", fallback: false },
+  originFetchFailed: false,
   checkStatus: "pass",
   checkOutput: "",
   diffLabel: "main...HEAD, 1 commit(s) ahead",
@@ -105,12 +287,12 @@ const baseInput: PacketInput = {
   untracked: [".review/mutations.json"],
   mutations: null,
   report: null,
-  compareUrl: "https://github.com/Meteoro3223/Project_C/compare/main...feat/p2-t3.diff",
-  urlUnavailableReason: null,
-  pushCommands: [],
+  review: {
+    kind: "pull",
+    diffUrl: "https://github.com/Meteoro3223/Project_C/pull/42.diff",
+    pull: { number: 42, state: "open" },
+  },
 };
-
-const finalLine = "Paste this whole text, including the URL on its own line, in the chat.";
 
 describe("buildPacket", () => {
   it("emits the sections in the required order", () => {
@@ -124,7 +306,7 @@ describe("buildPacket", () => {
       "## Mutation results",
       "## Agent report",
       "## Review URL",
-      finalLine,
+      PACKET_FINAL_LINE,
     ];
 
     let previous = -1;
@@ -144,8 +326,10 @@ describe("buildPacket", () => {
     expect(packet).toContain("mutations: not run");
     expect(packet).toContain("agent report: missing");
     expect(packet).toContain(baseInput.uncommittedStat);
-    expect(packet).toContain(baseInput.compareUrl ?? "");
-    expect(packet.trimEnd().endsWith(finalLine)).toBe(true);
+    expect(packet).toContain("https://github.com/Meteoro3223/Project_C/pull/42.diff");
+    expect(packet).toContain("PR state: open");
+    expect(packet).not.toContain("/compare/main...");
+    expect(packet.trimEnd().endsWith(PACKET_FINAL_LINE)).toBe(true);
   });
 
   it("says in the header when it had to fall back to local main", () => {
@@ -155,6 +339,12 @@ describe("buildPacket", () => {
     });
 
     expect(packet).toContain("- Diff base: main (origin/main not found; falling back to main)");
+  });
+
+  it("warns in the header when origin could not be fetched", () => {
+    const packet = buildPacket({ ...baseInput, originFetchFailed: true });
+
+    expect(packet).toContain("could not fetch origin; diff base may be stale");
   });
 
   it("shows only the last 25 lines of a failing check", () => {
@@ -172,33 +362,92 @@ describe("buildPacket", () => {
     expect(packet).toContain("## pnpm check\n\nnot run (--skip-check)");
   });
 
-  it("falls back to push instructions when no compare URL is available", () => {
+  it("falls back to push instructions when the branch is not pushed", () => {
     const packet = buildPacket({
       ...baseInput,
-      compareUrl: null,
-      urlUnavailableReason: "the branch has no upstream",
-      pushCommands: ["git push -u origin feat/p2-t3-courses-api"],
+      review: {
+        kind: "unavailable",
+        reason: "the branch has no upstream",
+        pushCommands: ["git push -u origin feat/p2-t3-courses-api"],
+        manualDiffUrl: null,
+      },
     });
 
-    expect(packet).toContain("The compare URL will not work yet: the branch has no upstream.");
+    expect(packet).toContain("The review URL is not available yet: the branch has no upstream.");
     expect(packet).toContain("git push -u origin feat/p2-t3-courses-api");
+  });
+
+  it("prints the create link when there is no PR yet", () => {
+    const packet = buildPacket({
+      ...baseInput,
+      review: {
+        kind: "create",
+        createUrl: "https://github.com/Meteoro3223/Project_C/compare/main...chore/x?expand=1",
+      },
+    });
+
+    expect(packet).toContain(
+      "https://github.com/Meteoro3223/Project_C/compare/main...chore/x?expand=1",
+    );
+    expect(packet).toContain("The .diff URL will exist once the PR is created");
+  });
+
+  it("tells the user to build the URL by hand when the API lookup fails", () => {
+    const packet = buildPacket({
+      ...baseInput,
+      review: {
+        kind: "unavailable",
+        reason: "the GitHub API request timed out after 5 s",
+        pushCommands: [],
+        manualDiffUrl: "https://github.com/Meteoro3223/Project_C/pull/<N>.diff",
+      },
+    });
+
+    expect(packet).toContain("the GitHub API request timed out after 5 s");
+    expect(packet).toContain(
+      "Build the URL by hand as https://github.com/Meteoro3223/Project_C/pull/<N>.diff",
+    );
+  });
+
+  it("keeps the whole agent report up to the 60-line cap", () => {
+    const report = Array.from(
+      { length: AGENT_REPORT_MAX_LINES },
+      (_, index) => `report row ${index + 1}`,
+    ).join("\n");
+    const packet = buildPacket({ ...baseInput, report });
+
+    expect(packet).toContain(`report row ${AGENT_REPORT_MAX_LINES}`);
+    expect(packet).not.toContain("agent report truncated");
+  });
+
+  it("truncates an agent report longer than 60 lines with a visible note", () => {
+    const report = Array.from(
+      { length: AGENT_REPORT_MAX_LINES + 1 },
+      (_, index) => `report row ${index + 1}`,
+    ).join("\n");
+    const packet = buildPacket({ ...baseInput, report });
+
+    expect(packet).toContain("agent report truncated: 1 more line(s)");
   });
 
   it("keeps a huge packet under 200 lines and preserves the URL and final line", () => {
     const huge = Array.from({ length: 300 }, (_, index) => `row ${index + 1}`).join("\n");
     const packet = buildPacket({
       ...baseInput,
+      checkStatus: "fail",
+      checkOutput: huge,
       diffStat: huge,
       uncommittedStat: huge,
       mutations: huge,
       report: huge,
       untracked: Array.from({ length: 100 }, (_, index) => `untracked-${index + 1}.ts`),
     });
+    const lines = packet.trimEnd().split("\n");
 
-    expect(packet.trimEnd().split("\n").length).toBeLessThanOrEqual(200);
-    expect(packet).toContain(baseInput.compareUrl ?? "");
-    expect(packet.trimEnd().endsWith(finalLine)).toBe(true);
-    expect(packet).toContain("truncated");
+    expect(lines.length).toBeLessThanOrEqual(200);
+    expect(lines).toContain("https://github.com/Meteoro3223/Project_C/pull/42.diff");
+    expect(packet.trimEnd().endsWith(PACKET_FINAL_LINE)).toBe(true);
+    expect(packet).toContain("[... packet truncated:");
   });
 });
 
@@ -210,6 +459,25 @@ describe("capPacket", () => {
     expect(result.split("\n").length).toBeLessThanOrEqual(20);
     expect(result).toContain("[... packet truncated:");
     expect(result.split("\n").at(-1)).toBe("line 50");
+  });
+
+  it("preserves an explicitly requested line that would otherwise be omitted", () => {
+    const text = Array.from({ length: 100 }, (_, index) => `line ${index + 1}`).join("\n");
+    const result = capPacket(text, 20, ["line 50"]);
+    const lines = result.split("\n");
+
+    expect(lines.length).toBeLessThanOrEqual(20);
+    expect(lines).toContain("line 50");
+    expect(result).toContain("[... packet truncated:");
+    expect(lines.at(-1)).toBe("line 100");
+  });
+
+  it("keeps the final line even when it is also listed as preserved", () => {
+    const text = Array.from({ length: 100 }, (_, index) => `line ${index + 1}`).join("\n");
+    const result = capPacket(text, 20, ["line 100"]);
+
+    expect(result.split("\n").at(-1)).toBe("line 100");
+    expect(result).toContain("[... packet truncated:");
   });
 
   it("returns a short packet unchanged", () => {
