@@ -96,6 +96,7 @@ const baseInput: PacketInput = {
   branch: "feat/p2-t3-courses-api",
   head: "26229f0",
   date: "2026-11-02T10:00:00.000Z",
+  diffBase: { ref: "origin/main", fallback: false },
   checkStatus: "pass",
   checkOutput: "",
   diffLabel: "main...HEAD, 1 commit(s) ahead",
@@ -138,11 +139,22 @@ describe("buildPacket", () => {
     const packet = buildPacket(baseInput);
 
     expect(packet).toContain("- Task: P2-T3");
+    expect(packet).toContain("- Diff base: origin/main");
+    expect(packet).not.toContain("origin/main not found");
     expect(packet).toContain("mutations: not run");
     expect(packet).toContain("agent report: missing");
     expect(packet).toContain(baseInput.uncommittedStat);
     expect(packet).toContain(baseInput.compareUrl ?? "");
     expect(packet.trimEnd().endsWith(finalLine)).toBe(true);
+  });
+
+  it("says in the header when it had to fall back to local main", () => {
+    const packet = buildPacket({
+      ...baseInput,
+      diffBase: { ref: "main", fallback: true },
+    });
+
+    expect(packet).toContain("- Diff base: main (origin/main not found; falling back to main)");
   });
 
   it("shows only the last 25 lines of a failing check", () => {

@@ -1,10 +1,16 @@
 export type CheckStatus = "pass" | "fail" | "skipped";
 
+export interface DiffBase {
+  ref: string;
+  fallback: boolean;
+}
+
 export interface PacketInput {
   taskId: string | null;
   branch: string;
   head: string;
   date: string;
+  diffBase: DiffBase;
   checkStatus: CheckStatus;
   checkOutput: string;
   diffLabel: string;
@@ -135,6 +141,9 @@ function section(title: string, body: string): string {
 
 export function buildPacket(input: PacketInput): string {
   const task = input.taskId ?? "unknown (branch name has no task id)";
+  const diffBase = input.diffBase.fallback
+    ? `- Diff base: ${input.diffBase.ref} (origin/main not found; falling back to ${input.diffBase.ref})`
+    : `- Diff base: ${input.diffBase.ref}`;
   const header = [
     "# Review packet",
     "",
@@ -142,6 +151,7 @@ export function buildPacket(input: PacketInput): string {
     `- Branch: ${input.branch}`,
     `- HEAD: ${input.head}`,
     `- Date: ${input.date}`,
+    diffBase,
   ].join("\n");
 
   let checkBody: string;

@@ -1,0 +1,38 @@
+{
+  "numTotalTestSuites": 2,
+  "numFailedTestSuites": 1,
+  "numTotalTests": 3,
+  "numFailedTests": 2,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["tempo"],
+          "fullName": "tempo accepts a positive value",
+          "status": "passed",
+          "title": "accepts a positive value"
+        },
+        {
+          "ancestorTitles": ["tempo"],
+          "fullName": "tempo rejects bad input",
+          "status": "failed",
+          "title": "rejects bad input"
+        },
+        {
+          "ancestorTitles": ["tempo"],
+          "fullName": "tempo still fails",
+          "status": "failed",
+          "title": "still fails"
+        }
+      ],
+      "status": "failed",
+      "name": "tools/review/fixtures/tempo.test.ts"
+    },
+    {
+      "assertionResults": [],
+      "status": "failed",
+      "message": "Transform failed with 1 error"
+    }
+  ]
+}

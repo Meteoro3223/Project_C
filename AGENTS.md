@@ -109,10 +109,11 @@ Every row of user data belongs to a workspace. Isolation bugs are the worst bugs
 
 ## Review protocol
 
-For every task, after implementing:
+For every task, after implementing. See [`docs/review-tooling.md`](docs/review-tooling.md)
+for the spec shape, result meanings, limitations and the fixed report template.
 
-1. Write `.review/report.md` with: files changed; an isolation audit (every Prisma call and where `workspaceId` applies) when the task touches data access; assumptions made; and the list of mutations you propose.
-2. Write the mutations as `.review/mutations.json` in the spec shape used by `tools/review/mutate.ts` and run `pnpm mutate .review/mutations.json`. Do not hand-edit source files to mutate.
+1. Write `.review/report.md` using the template in `docs/review-tooling.md`: Summary; Files changed; Isolation audit (table: Prisma call | file:line | where includes workspaceId?); Assumptions; Proposed mutations.
+2. Write the mutations as `.review/mutations.json` in the spec shape used by `tools/review/mutate.ts` and run `pnpm mutate .review/mutations.json`. The baseline test run happens automatically before any mutation; a red baseline aborts with `baseline is red, no mutation was run`. Do not hand-edit source files to mutate.
 3. Run `pnpm check`. Do not commit; do not push.
 4. Finish with a short summary and the proposed Conventional Commit message. Never paste the full diff in the reply.
 

@@ -1,11 +1,17 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyExactlyOnce,
+  classifyRun,
   countOccurrences,
-  extractFailingTests,
+  firstLines,
   formatZodError,
   mutationSpecSchema,
+  mutationTargetRejection,
+  parseVitestResult,
+  renderMutationReport,
   renderMutationTable,
+  shouldRestoreBackup,
 } from "./mutate-core";
 
 const firstMutation = {
@@ -115,23 +121,239 @@ describe("renderMutationTable", () => {
     );
     expect(table).toContain("| M2 | apps/api/src/y.ts:? | INVALID | find text not found |");
   });
+
+  it("renders ERROR and TIMEOUT rows", () => {
+    const table = renderMutationTable([
+      {
+        id: "M3",
+        location: "tools/review/x.ts:1",
+        result: "ERROR",
+        failingTest: "Transform failed\nsecond line",
+      },
+      {
+        id: "M4",
+        location: "tools/review/y.ts:2",
+        result: "TIMEOUT",
+        failingTest: "(timeout)",
+      },
+    ]);
+
+    expect(table).toContain(
+      "| M3 | tools/review/x.ts:1 | ERROR | Transform failed<br>second line |",
+    );
+    expect(table).toContain("| M4 | tools/review/y.ts:2 | TIMEOUT | (timeout) |");
+  });
 });
 
-describe("extractFailingTests", () => {
-  it("reads Vitest FAIL and cross-marked test lines after stripping ANSI", () => {
-    const output = [
-      "\u001b[31m FAIL \u001b[0m apps/api/src/foo.test.ts > suite > rejects bad input",
-      "   × rejects bad input 5ms",
-      " FAIL  apps/api/src/bar.test.ts > other > works",
-    ].join("\n");
+describe("renderMutationReport", () => {
+  it("writes the task heading and the mutation table", () => {
+    const report = renderMutationReport("CHORE", [
+      {
+        id: "M1",
+        location: "tools/review/x.ts:1",
+        result: "SURVIVED",
+        failingTest: "(none)",
+      },
+    ]);
 
-    const names = extractFailingTests(output);
-    expect(names).toContain("suite > rejects bad input");
-    expect(names).toContain("rejects bad input");
-    expect(names).toContain("other > works");
+    expect(report.startsWith("# Mutation results: CHORE\n\n")).toBe(true);
+    expect(report).toContain("| ID | file:line | result | failing test |");
+    expect(report).toContain("| M1 | tools/review/x.ts:1 | SURVIVED | (none) |");
+  });
+});
+
+describe("parseVitestResult", () => {
+  it("reads failed full names from the sample JSON fixture", () => {
+    const raw = readFileSync(
+      new URL("./fixtures/vitest-result.sample.json", import.meta.url),
+      "utf8",
+    );
+    const parsed = parseVitestResult(raw);
+
+    expect(parsed).toEqual({
+      ok: true,
+      report: {
+        failedTests: ["tempo rejects bad input", "tempo still fails"],
+        messages: ["Transform failed with 1 error"],
+        totalTests: 3,
+        succeeded: false,
+      },
+    });
   });
 
-  it("returns an empty list when no test failure is present", () => {
-    expect(extractFailingTests("Test Files  1 passed (1)")).toEqual([]);
+  it("accepts a successful report with no failures", () => {
+    const parsed = parseVitestResult(
+      JSON.stringify({
+        success: true,
+        numFailedTests: 0,
+        testResults: [
+          {
+            assertionResults: [{ fullName: "works", status: "passed", title: "works" }],
+          },
+        ],
+      }),
+    );
+
+    expect(parsed).toEqual({
+      ok: true,
+      report: { failedTests: [], messages: [], totalTests: 1, succeeded: true },
+    });
+  });
+
+  it("rejects an empty report", () => {
+    const parsed = parseVitestResult("  ");
+    expect(parsed).toEqual({ ok: false, reason: "vitest did not write a JSON report" });
+  });
+
+  it("rejects invalid JSON", () => {
+    const parsed = parseVitestResult("{not json");
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.reason).toContain("invalid vitest JSON report");
+    }
+  });
+
+  it("rejects a report without testResults", () => {
+    const parsed = parseVitestResult(JSON.stringify({ success: false }));
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.reason).toContain("missing testResults");
+    }
+  });
+});
+
+describe("firstLines", () => {
+  it("keeps only the first lines and normalises CRLF", () => {
+    expect(firstLines("one\r\ntwo\r\nthree\r\nfour", 3)).toBe("one\ntwo\nthree");
+  });
+
+  it("returns a placeholder for empty output", () => {
+    expect(firstLines("\n\n", 3)).toBe("(no output)");
+  });
+
+  it("rejects an invalid count", () => {
+    expect(() => firstLines("one", 0)).toThrow("count must be a positive integer");
+  });
+});
+
+describe("classifyRun", () => {
+  const passing = {
+    exitCode: 0,
+    output: "Test Files  1 passed (1)",
+    failedTests: [],
+    timedOut: false,
+  };
+
+  it("marks a timeout as detected and shows (timeout)", () => {
+    expect(classifyRun({ ...passing, exitCode: 1, timedOut: true })).toEqual({
+      result: "TIMEOUT",
+      failingTest: "(timeout)",
+    });
+  });
+
+  it("marks an unstarted command as ERROR", () => {
+    expect(classifyRun({ ...passing, exitCode: null, output: "spawn pnpm ENOENT" })).toEqual({
+      result: "ERROR",
+      failingTest: "spawn pnpm ENOENT",
+    });
+  });
+
+  it("marks a green run as SURVIVED", () => {
+    expect(classifyRun(passing)).toEqual({ result: "SURVIVED", failingTest: "(none)" });
+  });
+
+  it("marks a failed run with no parsed failure as ERROR with the first 3 lines", () => {
+    const output = [
+      "Transform failed with 1 error",
+      "tools/review/x.ts:1:44: ERROR: Unexpected end of file",
+      "",
+      "fourth line is hidden",
+    ].join("\n");
+
+    expect(classifyRun({ ...passing, exitCode: 1, output, failedTests: [] })).toEqual({
+      result: "ERROR",
+      failingTest:
+        "Transform failed with 1 error\ntools/review/x.ts:1:44: ERROR: Unexpected end of file",
+    });
+  });
+
+  it("marks a failed run with a matching failed test as KILLED", () => {
+    expect(
+      classifyRun({
+        ...passing,
+        exitCode: 1,
+        failedTests: ["suite rejects bad input"],
+        expectedKilledBy: "rejects",
+      }),
+    ).toEqual({ result: "KILLED", failingTest: "suite rejects bad input" });
+  });
+
+  it("marks a failed run with an unrelated failing test as KILLED_BY_OTHER", () => {
+    expect(
+      classifyRun({
+        ...passing,
+        exitCode: 1,
+        failedTests: ["suite rejects bad input"],
+        expectedKilledBy: "accepts",
+      }),
+    ).toEqual({ result: "KILLED_BY_OTHER", failingTest: "suite rejects bad input" });
+  });
+
+  it("marks a failed run without an expectation as KILLED", () => {
+    expect(
+      classifyRun({ ...passing, exitCode: 1, failedTests: ["suite rejects bad input"] }),
+    ).toEqual({ result: "KILLED", failingTest: "suite rejects bad input" });
+  });
+});
+
+describe("shouldRestoreBackup", () => {
+  const hash = "a".repeat(64);
+
+  it("restores when the current file still has the mutated hash", () => {
+    expect(shouldRestoreBackup(hash, hash)).toBe(true);
+    expect(shouldRestoreBackup(hash.toUpperCase(), `${hash}\n`)).toBe(true);
+  });
+
+  it("keeps the backup when the file changed or disappeared", () => {
+    expect(shouldRestoreBackup("b".repeat(64), hash)).toBe(false);
+    expect(shouldRestoreBackup(null, hash)).toBe(false);
+  });
+});
+
+describe("mutationTargetRejection", () => {
+  const manual = /verify this mutation manually/iu;
+
+  it.each([
+    "apps/api/prisma/schema.prisma",
+    "apps/api/prisma/migrations/001_init/migration.sql",
+    "apps\\api\\prisma\\migrations\\001_init\\migration.sql",
+    "apps/api/prisma",
+    "apps/api/prisma/",
+    "packages/shared/schema.prisma",
+  ])("rejects the Prisma path %s", (file) => {
+    const reason = mutationTargetRejection(file);
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("Prisma");
+    expect(reason).toMatch(manual);
+  });
+
+  it.each([
+    "apps/api/generated/prisma/client.ts",
+    "packages/db/generated/prisma/index.ts",
+    "node_modules/.prisma/client/index.d.ts",
+  ])("rejects the generated Prisma client path %s", (file) => {
+    const reason = mutationTargetRejection(file);
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("regenerated Prisma client");
+    expect(reason).toMatch(manual);
+  });
+
+  it.each([
+    "tools/review/mutate-core.ts",
+    "apps/api/src/routes/tasks.ts",
+    "packages/core/priority.ts",
+    "apps/web/src/features/today.tsx",
+  ])("allows the ordinary source path %s", (file) => {
+    expect(mutationTargetRejection(file)).toBeNull();
   });
 });
